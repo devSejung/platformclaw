@@ -2,9 +2,9 @@
 import { parseCodeModeScriptSyntax } from "../../agents/code-mode-script-syntax.js";
 import { resolveCronTriggerMinIntervalMs } from "../../config/cron-limits.js";
 import type { CronConfig } from "../../config/types.cron.js";
-import { normalizeAgentId } from "../../routing/session-key.js";
+import { normalizeAgentId, parseAgentSessionKey } from "../../routing/session-key.js";
 import { compileSafeRegexDetailed } from "../../security/safe-regex.js";
-import { resolveCronDeliveryPlan } from "../delivery-plan.js";
+import { isCronTranscriptDelivery, resolveCronDeliveryPlan } from "../delivery-plan.js";
 import { parseCronPacingBounds } from "../pacing.js";
 import { assertSafeCronSessionTargetId } from "../session-target.js";
 import type { CronDelivery, CronJob, CronJobPatch } from "../types.js";
@@ -194,9 +194,35 @@ export function assertMainSessionAgentId(
   }
 }
 
-export function assertDeliverySupport(job: Pick<CronJob, "sessionTarget" | "delivery">) {
+export function assertDeliverySupport(job: CronJob) {
   if (!job.delivery) {
     return;
+  }
+  if (isCronTranscriptDelivery(job.delivery)) {
+    const sessionAgentId = job.sessionKey
+      ? parseAgentSessionKey(job.sessionKey)?.agentId
+      : undefined;
+    // The scheduler stamps this policy from signed caller identity. The RPC's
+    // public owner fields alone cannot authorize a transcript destination.
+    if (
+      job.sessionTarget !== "current" ||
+      job.payload.kind !== "agentTurn" ||
+      !sessionAgentId ||
+      job.agentId !== sessionAgentId ||
+      job.owner?.agentId !== sessionAgentId ||
+      job.scheduledToolPolicy?.mode !== "account" ||
+      job.sessionKey !== job.scheduledToolPolicy.ownerSessionKey ||
+      job.failureAlert !== false ||
+      job.delivery.to !== undefined ||
+      job.delivery.accountId !== undefined ||
+      job.delivery.threadId !== undefined ||
+      job.delivery.completionDestination !== undefined ||
+      job.delivery.failureDestination !== undefined
+    ) {
+      throw new TypeError(
+        "delivery.channel webchat requires the authenticated current session without outbound delivery fields",
+      );
+    }
   }
   // No primary delivery and no completion webhook -- nothing to validate.
   if (job.delivery.mode === "none" && !job.delivery.completionDestination) {

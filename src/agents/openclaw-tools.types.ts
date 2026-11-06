@@ -60,6 +60,7 @@ export type CreateOpenClawToolsOptions = {
   pluginToolDenylist?: string[];
   /** Effective caller tool surface to persist on isolated cron agentTurn jobs. */
   cronCreatorToolAllowlist?: CronCreatorToolAllowlistEntry[];
+  personalAutomationsSessionKey?: string;
   /** Current channel ID for auto-threading. */
   currentChannelId?: string;
   /** Trusted normalized conversation kind for the active inbound turn. */

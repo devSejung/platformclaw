@@ -7636,6 +7636,7 @@ public struct SessionsSendParams: Codable, Sendable {
     public let deliver: Bool?
     public let suppresscommandinterpretation: Bool?
     public let senderattribution: [String: AnyCodable]?
+    public let personalautomations: Bool?
     public let attachments: [[String: AnyCodable]]?
     public let timeoutms: Int?
     public let idempotencykey: String?
@@ -7648,6 +7649,7 @@ public struct SessionsSendParams: Codable, Sendable {
         deliver: Bool? = nil,
         suppresscommandinterpretation: Bool? = nil,
         senderattribution: [String: AnyCodable]? = nil,
+        personalautomations: Bool? = nil,
         attachments: [[String: AnyCodable]]? = nil,
         timeoutms: Int? = nil,
         idempotencykey: String? = nil)
@@ -7659,6 +7661,7 @@ public struct SessionsSendParams: Codable, Sendable {
         self.deliver = deliver
         self.suppresscommandinterpretation = suppresscommandinterpretation
         self.senderattribution = senderattribution
+        self.personalautomations = personalautomations
         self.attachments = attachments
         self.timeoutms = timeoutms
         self.idempotencykey = idempotencykey
@@ -7672,6 +7675,7 @@ public struct SessionsSendParams: Codable, Sendable {
         case deliver
         case suppresscommandinterpretation = "suppressCommandInterpretation"
         case senderattribution = "senderAttribution"
+        case personalautomations = "personalAutomations"
         case attachments
         case timeoutms = "timeoutMs"
         case idempotencykey = "idempotencyKey"
@@ -17686,6 +17690,7 @@ public struct ChatSendParams: Codable, Sendable {
     public let systemprovenancereceipt: String?
     public let suppresscommandinterpretation: Bool?
     public let senderattribution: [String: AnyCodable]?
+    public let personalautomations: Bool?
     public let expectedleafentryid: AnyCodable?
     public let requireexactleaf: Bool?
     public let expectedsessionroutingcontract: String?
@@ -17714,6 +17719,7 @@ public struct ChatSendParams: Codable, Sendable {
         systemprovenancereceipt: String? = nil,
         suppresscommandinterpretation: Bool? = nil,
         senderattribution: [String: AnyCodable]? = nil,
+        personalautomations: Bool? = nil,
         expectedleafentryid: AnyCodable? = nil,
         requireexactleaf: Bool? = nil,
         expectedsessionroutingcontract: String? = nil,
@@ -17741,6 +17747,7 @@ public struct ChatSendParams: Codable, Sendable {
         self.systemprovenancereceipt = systemprovenancereceipt
         self.suppresscommandinterpretation = suppresscommandinterpretation
         self.senderattribution = senderattribution
+        self.personalautomations = personalautomations
         self.expectedleafentryid = expectedleafentryid
         self.requireexactleaf = requireexactleaf
         self.expectedsessionroutingcontract = expectedsessionroutingcontract
@@ -17769,6 +17776,7 @@ public struct ChatSendParams: Codable, Sendable {
         systemprovenancereceipt: String? = nil,
         suppresscommandinterpretation: Bool? = nil,
         senderattribution: [String: AnyCodable]? = nil,
+        personalautomations: Bool? = nil,
         expectedleafentryid: AnyCodable? = nil,
         requireexactleaf: Bool? = nil,
         expectedsessionroutingcontract: String? = nil,
@@ -17797,6 +17805,7 @@ public struct ChatSendParams: Codable, Sendable {
             systemprovenancereceipt: systemprovenancereceipt,
             suppresscommandinterpretation: suppresscommandinterpretation,
             senderattribution: senderattribution,
+            personalautomations: personalautomations,
             expectedleafentryid: expectedleafentryid,
             requireexactleaf: requireexactleaf,
             expectedsessionroutingcontract: expectedsessionroutingcontract,
@@ -17826,6 +17835,7 @@ public struct ChatSendParams: Codable, Sendable {
         case systemprovenancereceipt = "systemProvenanceReceipt"
         case suppresscommandinterpretation = "suppressCommandInterpretation"
         case senderattribution = "senderAttribution"
+        case personalautomations = "personalAutomations"
         case expectedleafentryid = "expectedLeafEntryId"
         case requireexactleaf = "requireExactLeaf"
         case expectedsessionroutingcontract = "expectedSessionRoutingContract"

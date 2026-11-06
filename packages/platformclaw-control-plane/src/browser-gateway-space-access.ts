@@ -117,7 +117,7 @@ export class BrowserGatewaySpaceAccess {
     this.options.spaceService?.conversations.assertNativeRequest(access.user.id, method, params);
   }
 
-  private isPersonalSession(sessionKey: string): boolean {
+  isPersonalSession(sessionKey: string): boolean {
     return (
       !isSpaceConversationSession(sessionKey) &&
       !this.options.spaceService?.spaces.registeredConversation(sessionKey)

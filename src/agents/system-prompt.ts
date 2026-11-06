@@ -917,7 +917,7 @@ export function buildAgentSystemPrompt(params: {
     canvas: "Control a paired node's Canvas; node required; file URLs are node-local",
     nodes: "Paired node status/control/media",
     [AUTOMATIONS_TOOL_NAME]:
-      "Schedule/wake. Reminder text must read as reminder when fired; mention reminder for delayed gaps; include useful recent context. This feature is called automations; never call it cron.",
+      "Schedule reminders and recurring tasks using the actions in the tool schema. Write reminders to make sense when they fire, with useful context. Call this feature automations.",
     message: "Message/channel actions",
     conversations_list: "List exact external conversation addresses",
     conversations_send: "Send directly to an external conversation",

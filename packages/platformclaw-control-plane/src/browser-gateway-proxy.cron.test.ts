@@ -193,6 +193,56 @@ describe("BrowserGatewayProxy cron", () => {
     });
   });
 
+  it("keeps a private conversation job's delivery and session through browser management", async () => {
+    const { binding, proxy, request, token } = await setup();
+    const sessionKey = `agent:${binding.agentId}:dashboard:private`;
+    const owner = { agentId: binding.agentId, sessionKey, accountId: "first.user" };
+    let job = safeCronJob(binding.agentId, {
+      sessionTarget: "current",
+      sessionKey,
+      owner,
+      delivery: { mode: "announce", channel: "webchat" },
+    });
+    const jobRef = { id: job.id, expectedConfigRevision: "revision-1" };
+    request.mockResolvedValueOnce({ jobs: [job], total: 1, hasMore: false });
+    await expect(proxy.request(token, "cron.list", {})).resolves.toMatchObject({ jobs: [job] });
+
+    for (const delivery of [{ mode: "none" }, { mode: "announce", channel: "last" }]) {
+      const updated = { ...job, delivery: { mode: delivery.mode, channel: "webchat" } };
+      request.mockResolvedValueOnce(job).mockResolvedValueOnce(updated);
+      await expect(
+        proxy.request(token, "cron.update", { ...jobRef, patch: { delivery } }),
+      ).resolves.toEqual(updated);
+      expect(request).toHaveBeenLastCalledWith("cron.update", {
+        ...jobRef,
+        patch: { agentId: binding.agentId, sessionKey, delivery: updated.delivery },
+      });
+      job = updated;
+    }
+
+    request.mockClear();
+    request.mockResolvedValueOnce(job);
+    await expect(
+      proxy.request(token, "cron.update", { ...jobRef, patch: { sessionTarget: "isolated" } }),
+    ).rejects.toMatchObject({ code: "method-not-allowed" });
+    expect(request).toHaveBeenCalledExactlyOnceWith("cron.get", { id: job.id });
+
+    request.mockClear();
+    await expect(
+      proxy.request(token, "cron.update", {
+        ...jobRef,
+        patch: { delivery: { mode: "announce", channel: "knox", to: "dm:foreign" } },
+      }),
+    ).rejects.toMatchObject({ code: "method-not-allowed" });
+    expect(request).not.toHaveBeenCalled();
+
+    for (const method of ["cron.run", "cron.remove"]) {
+      request.mockResolvedValueOnce(job).mockResolvedValueOnce({ ok: true });
+      await expect(proxy.request(token, method, jobRef)).resolves.toEqual({ ok: true });
+      expect(request).toHaveBeenLastCalledWith(method, jobRef);
+    }
+  });
+
   it("returns an empty run-history page when the owned registry has no jobs", async () => {
     const { proxy, request, token } = await setup();
     request.mockResolvedValueOnce({ jobs: [], total: 0, hasMore: false });

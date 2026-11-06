@@ -363,6 +363,9 @@ export function createOpenClawTools(options?: CreateOpenClawToolsOptions): AnyAg
               threadId: options?.currentThreadTs ?? options?.agentThreadId,
             },
             creatorToolAllowlist: options?.cronCreatorToolAllowlist,
+            ...(options?.personalAutomationsSessionKey
+              ? { personalSessionKey: options.personalAutomationsSessionKey }
+              : {}),
             runId: options?.runId,
             ...(options?.cronSelfRemoveOnlyJobId
               ? { selfRemoveOnlyJobId: options.cronSelfRemoveOnlyJobId }

@@ -7,8 +7,13 @@ import {
 } from "@openclaw/normalization-core/string-coerce";
 import type { CronFailureDestinationConfig } from "../config/types.cron.js";
 import { resolveTargetPrefixedChannel } from "../infra/outbound/channel-target-prefix.js";
+import { INTERNAL_MESSAGE_CHANNEL } from "../utils/message-channel-constants.js";
 import { shouldDefaultCronDeliveryToAnnounce } from "./delivery-defaults.js";
 import type { CronDelivery, CronDeliveryMode, CronJob, CronMessageChannel } from "./types.js";
+
+export function isCronTranscriptDelivery(delivery?: CronDelivery): boolean {
+  return delivery?.channel === INTERNAL_MESSAGE_CHANNEL && delivery.mode !== "webhook";
+}
 
 /** Normalized routing plan for a cron job's primary delivery behavior. */
 export type CronDeliveryPlan = {
@@ -95,7 +100,11 @@ export function resolveCronDeliveryPlan(job: CronJob): CronDeliveryPlan {
         : deliveryChannel;
     return {
       mode: resolvedMode,
-      channel: resolvedMode === "webhook" ? undefined : channel,
+      channel:
+        resolvedMode === "webhook" ||
+        (resolvedMode === "none" && isCronTranscriptDelivery(delivery))
+          ? undefined
+          : channel,
       to,
       threadId: resolvedMode === "webhook" ? undefined : deliveryThreadId,
       accountId: deliveryAccountId,
@@ -154,6 +163,10 @@ export function resolveFailureDestination(
   globalConfig?: CronFailureDestinationConfig,
 ): CronFailureDeliveryPlan | null {
   const delivery = job.delivery;
+  // Transcript-only jobs do not inherit an external failure destination.
+  if (isCronTranscriptDelivery(delivery)) {
+    return null;
+  }
   const jobFailureDest = delivery?.failureDestination as CronFailureDestinationInput | undefined;
   const hasJobFailureDest = jobFailureDest && typeof jobFailureDest === "object";
 

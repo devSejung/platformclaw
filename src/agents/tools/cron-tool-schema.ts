@@ -31,7 +31,8 @@ const CRON_ACTIONS = [
   "wake",
 ] as const;
 
-const CRON_SCHEDULE_KINDS = ["at", "every", "cron", "stream"] as const;
+const TIMED_CRON_SCHEDULE_KINDS = ["at", "every", "cron"] as const;
+const CRON_SCHEDULE_KINDS = [...TIMED_CRON_SCHEDULE_KINDS, "stream"] as const;
 const CRON_WAKE_MODES = ["now", "next-heartbeat"] as const;
 const CRON_PAYLOAD_KINDS = ["systemEvent", "agentTurn", "script"] as const;
 const CRON_DELIVERY_MODES = ["none", "announce", "webhook"] as const;
@@ -94,29 +95,31 @@ function cronPayloadObjectSchema(params: {
   );
 }
 
+const timedCronScheduleProperties = {
+  at: Type.Optional(Type.String({ description: "ISO-8601 time (kind=at)" })),
+  everyMs: optionalPositiveIntegerSchema({ description: "Interval ms (kind=every)" }),
+  anchorMs: optionalNonNegativeIntegerSchema({ description: "Start anchor ms (kind=every)" }),
+  expr: Type.Optional(
+    Type.String({
+      description:
+        'Cron wall-time expr; never UTC-convert. Missing tz=Gateway local. Example "0 18 * * *", "Asia/Shanghai".',
+    }),
+  ),
+  tz: Type.Optional(
+    Type.String({
+      description:
+        'IANA timezone for wall-clock fields; missing=Gateway host local timezone. Example "Asia/Shanghai".',
+    }),
+  ),
+  staggerMs: optionalNonNegativeIntegerSchema({ description: "Jitter ms (kind=cron)" }),
+};
+
 function createCronScheduleSchema(): TSchema {
   return Type.Optional(
     Type.Object(
       {
         kind: optionalStringEnum(CRON_SCHEDULE_KINDS, { description: "Schedule kind" }),
-        at: Type.Optional(Type.String({ description: "ISO-8601 time (kind=at)" })),
-        everyMs: optionalPositiveIntegerSchema({ description: "Interval ms (kind=every)" }),
-        anchorMs: optionalNonNegativeIntegerSchema({
-          description: "Start anchor ms (kind=every)",
-        }),
-        expr: Type.Optional(
-          Type.String({
-            description:
-              'Cron wall-time expr; never UTC-convert. Missing tz=Gateway local. Example "0 18 * * *", "Asia/Shanghai".',
-          }),
-        ),
-        tz: Type.Optional(
-          Type.String({
-            description:
-              'IANA timezone for wall-clock fields; missing=Gateway host local timezone. Example "Asia/Shanghai".',
-          }),
-        ),
-        staggerMs: optionalNonNegativeIntegerSchema({ description: "Jitter ms (kind=cron)" }),
+        ...timedCronScheduleProperties,
         command: Type.Optional(
           Type.Array(Type.String({ minLength: 1 }), {
             minItems: 1,
@@ -133,6 +136,28 @@ function createCronScheduleSchema(): TSchema {
     ),
   );
 }
+
+export const personalCronToolSchema = Type.Object(
+  {
+    action: stringEnum(["add"]),
+    job: Type.Object(
+      {
+        name: Type.Optional(Type.String()),
+        schedule: Type.Object(
+          { kind: stringEnum(TIMED_CRON_SCHEDULE_KINDS), ...timedCronScheduleProperties },
+          { additionalProperties: false },
+        ),
+        payload: Type.Object(
+          { kind: stringEnum(["agentTurn"]), message: Type.String({ minLength: 1 }) },
+          { additionalProperties: false },
+        ),
+        deleteAfterRun: Type.Optional(Type.Boolean()),
+      },
+      { additionalProperties: false },
+    ),
+  },
+  { additionalProperties: false },
+);
 
 function createCronPacingSchema(params: { nullableClears: boolean }): TSchema {
   const pacing = Type.Object(

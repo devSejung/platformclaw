@@ -445,6 +445,7 @@ export const SessionsSendParamsSchema = closedObject({
   /** Trusted relays may preserve the same provenance controls as chat.send. */
   suppressCommandInterpretation: Type.Optional(Type.Boolean()),
   senderAttribution: Type.Optional(ChatSenderAttributionSchema),
+  personalAutomations: Type.Optional(Type.Literal(true)),
   attachments: Type.Optional(ChatAttachmentsSchema),
   timeoutMs: Type.Optional(Type.Integer({ minimum: 0 })),
   idempotencyKey: Type.Optional(NonEmptyString),

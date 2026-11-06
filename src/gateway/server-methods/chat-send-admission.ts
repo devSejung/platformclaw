@@ -61,6 +61,7 @@ export async function admitChatSend(params: {
       agentId: session.agentId,
       sessionKey: session.sessionKey,
       senderAttribution: request.senderAttribution,
+      personalAutomationsAgentId: session.personalAutomationsAgentId,
     })
   ) {
     return { ok: false as const };

@@ -8,6 +8,7 @@ import {
 import { normalizeAccountId } from "../routing/account-id.js";
 import { resolveNormalizedAccountEntry } from "../routing/account-lookup.js";
 import { isDeliverableMessageChannel, normalizeMessageChannel } from "../utils/message-channel.js";
+import { isCronTranscriptDelivery } from "./delivery-plan.js";
 import { resolveFailureAlert } from "./service/failure-alerts.js";
 import type { CronDelivery, CronFailureAlert, CronJobCreate } from "./types.js";
 
@@ -132,7 +133,11 @@ export async function assertValidCronAnnounceDelivery(params: {
   cfg: OpenClawConfig;
   delivery?: CronDelivery;
 }) {
-  if (params.delivery && (params.delivery.mode ?? "announce") === "announce") {
+  if (
+    params.delivery &&
+    (params.delivery.mode ?? "announce") === "announce" &&
+    !isCronTranscriptDelivery(params.delivery)
+  ) {
     assertCompatibleAnnounceTarget({
       channel: params.delivery.channel,
       to: params.delivery.to,

@@ -27,6 +27,7 @@ import { getPluginToolMeta } from "../plugins/tools.js";
 import { isCronSessionKey, isSubagentSessionKey } from "../routing/session-key.js";
 import { GATEWAY_OWNER_ONLY_CORE_TOOLS } from "../security/dangerous-tools.js";
 import type { InputProvenance } from "../sessions/input-provenance.js";
+import { parseAgentSessionKey } from "../sessions/session-key-utils.js";
 import type { SkillSnapshot, SkillUsagePath } from "../skills/types.js";
 import type { SkillWorkshopRunOptions } from "../skills/workshop/types.js";
 import { resolveGatewayMessageChannel } from "../utils/message-channel.js";
@@ -110,6 +111,7 @@ import {
   AGENT_WORKSPACE_TOOL_NAMES,
   createAgentWorkspaceTools,
 } from "./tools/agent-workspace-tools.js";
+import { AUTOMATIONS_TOOL_NAME } from "./tools/automations-tool-name.js";
 import {
   replaceWithEffectiveCronCreatorToolAllowlist,
   type CronCreatorToolAllowlistEntry,
@@ -677,10 +679,28 @@ function createOpenClawCodingToolsInternal(options?: OpenClawCodingToolsOptions)
     },
     recordToolPrepStage: options?.recordToolPrepStage,
   });
+  const runSessionKey = (options?.runSessionKey ?? options?.sessionKey)?.trim();
+  // The browser grant restores one bounded tool without inheriting the relay's owner authority.
+  const personalAutomationsSessionKey =
+    options?.senderIsOwner === false &&
+    includeOpenClawTools &&
+    agentId &&
+    options.senderAgentId === agentId &&
+    options.toolBindings?.personalAutomations === agentId &&
+    parseAgentSessionKey(runSessionKey)?.agentId === agentId &&
+    !isCronSessionKey(runSessionKey) &&
+    !isSubagentSessionKey(runSessionKey)
+      ? runSessionKey
+      : undefined;
   const ownerOnlyCoreToolDenylist =
     options?.senderIsOwner === false ? [...GATEWAY_OWNER_ONLY_CORE_TOOLS] : [];
-  const ownerOnlyCoreToolPolicy =
-    ownerOnlyCoreToolDenylist.length > 0 ? { deny: ownerOnlyCoreToolDenylist } : undefined;
+  const ownerOnlyCoreToolPolicy = ownerOnlyCoreToolDenylist.length
+    ? {
+        deny: personalAutomationsSessionKey
+          ? ownerOnlyCoreToolDenylist.filter((name) => name !== AUTOMATIONS_TOOL_NAME)
+          : ownerOnlyCoreToolDenylist,
+      }
+    : undefined;
   const pluginToolAllowlist = appendRuntimePluginToolGrant(
     capabilityProfile.policy.explicitToolAllowlist,
     runtimePluginToolGrant,
@@ -839,6 +859,7 @@ function createOpenClawCodingToolsInternal(options?: OpenClawCodingToolsOptions)
             pluginToolAllowlist,
             pluginToolDenylist,
             cronCreatorToolAllowlist,
+            personalAutomationsSessionKey,
             currentChannelId: options?.currentChannelId,
             currentChatType: options?.chatType,
             currentMessagingTarget: options?.currentMessagingTarget,
@@ -932,7 +953,7 @@ function createOpenClawCodingToolsInternal(options?: OpenClawCodingToolsOptions)
   });
   options?.recordToolPrepStage?.("model-provider-policy");
   // Sender identity is primarily command/action auth, with one Gateway parity exception:
-  // explicit non-owner callers never receive owner-only control-plane core tools.
+  // explicit non-owner callers receive only the control-plane tools scoped above.
   const subagentFiltered = applyToolPolicyPipeline({
     tools: toolsForModelProvider,
     toolMeta: (tool) => getPluginToolMeta(tool),

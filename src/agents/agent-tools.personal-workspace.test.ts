@@ -7,6 +7,7 @@ import { createOpenClawCodingTools } from "./agent-tools.js";
 import { createAgentToolsSandboxContext } from "./test-helpers/agent-tools-sandbox-context.js";
 import { createHostSandboxFsBridge } from "./test-helpers/host-sandbox-fs-bridge.js";
 import { AGENT_WORKSPACE_TOOL_NAMES } from "./tools/agent-workspace-tools.js";
+import { AUTOMATIONS_TOOL_NAME } from "./tools/automations-tool-name.js";
 import { readWorkspaceStateSnapshot } from "./workspace-state-store.js";
 
 const roots: string[] = [];
@@ -73,6 +74,34 @@ function requireTool(tools: ReturnType<typeof createOpenClawCodingTools>, name: 
 }
 
 describe("personal Agent workspace authority", () => {
+  it("exposes only the scoped automations tool for a matching browser grant", async () => {
+    const ctx = await fixture();
+    const ownerToolNames = (
+      senderAgentId: string,
+      personalAutomations: string | undefined,
+      sessionKey = "agent:main:main",
+    ) =>
+      createOpenClawCodingTools({
+        agentId: "main",
+        workspaceDir: ctx.agentWorkspaceDir,
+        config: { tools: { profile: "full" } },
+        sessionKey,
+        senderIsOwner: false,
+        senderAgentId,
+        toolBindings: { personalAutomations },
+        wrapBeforeToolCallHook: false,
+      })
+        .filter((tool) => GATEWAY_OWNER_ONLY_CORE_TOOLS.some((name) => name === tool.name))
+        .map((tool) => tool.name);
+
+    expect(ownerToolNames("main", "main")).toEqual([AUTOMATIONS_TOOL_NAME]);
+    expect(ownerToolNames("main", undefined)).toEqual([]);
+    expect(ownerToolNames("foreign", "main")).toEqual([]);
+    expect(ownerToolNames("main", "foreign")).toEqual([]);
+    expect(ownerToolNames("main", "main", "agent:foreign:main")).toEqual([]);
+    expect(ownerToolNames("main", "main", "agent:main:cron:job")).toEqual([]);
+  });
+
   it("allows the bound Agent profile and bootstrap without Gateway owner tools", async () => {
     const ctx = await fixture();
     const configPath = path.join(ctx.root, "openclaw.json");

@@ -60,6 +60,7 @@ describe("BrowserGatewayProxy ACP commands", () => {
       idempotencyKey: `request-${message}`,
       agentId: binding.agentId,
       deliver: false,
+      personalAutomations: true,
       senderAttribution: {
         id: user.accountId,
         name: user.displayName,

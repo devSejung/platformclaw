@@ -150,6 +150,8 @@ export const ChatSendParamsSchema = closedObject({
   systemProvenanceReceipt: Type.Optional(Type.String()),
   suppressCommandInterpretation: Type.Optional(Type.Boolean()),
   senderAttribution: Type.Optional(ChatSenderAttributionSchema),
+  /** Trusted relay proof for a private conversation in the attributed Agent. */
+  personalAutomations: Type.Optional(Type.Literal(true)),
   // Client's believed active-branch leaf entry id. A mismatch with the
   // session's current active leaf rejects the send so stale views cannot post elsewhere.
   expectedLeafEntryId: Type.Optional(Type.Union([NonEmptyString, Type.Null()])),

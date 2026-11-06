@@ -254,6 +254,7 @@ export async function runReplyAgent(
     const steerText = opts?.questionAnswerBinding
       ? (followupRun.transcriptPrompt ?? followupRun.prompt)
       : followupRun.prompt;
+    const personalAutomationsAgentId = followupRun.run.toolBindings?.personalAutomations;
     const steerOutcome = await queueEmbeddedAgentMessageWithOutcomeAsync(
       steerSessionId,
       steerText,
@@ -272,6 +273,7 @@ export async function runReplyAgent(
           ? { sourceReplyDeliveryMode: followupRun.run.sourceReplyDeliveryMode }
           : {}),
         taskSuggestionDeliveryMode: followupRun.run.taskSuggestionDeliveryMode,
+        ...(typeof personalAutomationsAgentId === "string" ? { personalAutomationsAgentId } : {}),
         ...(followupRun.userTurnTranscriptRecorder
           ? { userTurnTranscriptRecorder: followupRun.userTurnTranscriptRecorder }
           : {}),

@@ -78,6 +78,7 @@ describe("BrowserGatewayProxy model selection", () => {
       message: "hello",
       idempotencyKey: expect.any(String),
       deliver: false,
+      personalAutomations: true,
       senderAttribution: expect.objectContaining({ id: user.accountId, profileId: user.id }),
       suppressCommandInterpretation: true,
     });

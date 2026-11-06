@@ -60,7 +60,7 @@ async function assertConfiguredCronModel(
   }
 }
 
-function assertEffectiveCronDelivery(
+function prepareEffectiveCronUpdate(
   context: BrowserCronContext,
   currentJob: JsonObject,
   prepared: JsonObject,
@@ -69,7 +69,20 @@ function assertEffectiveCronDelivery(
     prepared.patch && typeof prepared.patch === "object" && !Array.isArray(prepared.patch)
       ? (prepared.patch as JsonObject)
       : {};
-  const delivery = patch.delivery === undefined ? currentJob.delivery : patch.delivery;
+  const currentDelivery = currentJob.delivery as JsonObject | undefined;
+  if (currentJob.sessionTarget === "current" && currentDelivery?.channel === "webchat") {
+    const sessionKey = optionalString(currentJob.sessionKey);
+    if (!sessionKey || (patch.sessionTarget !== undefined && patch.sessionTarget !== "current")) {
+      context.fail("method-not-allowed", "this cron job must stay in its original conversation");
+    }
+    // The browser editor sends last for announce and omits the channel for
+    // none. Keep this job's exact transcript destination across both edits.
+    patch.sessionKey = sessionKey;
+    if (patch.delivery !== undefined) {
+      patch.delivery = { ...(patch.delivery as JsonObject), channel: "webchat" };
+    }
+  }
+  const delivery = patch.delivery === undefined ? currentDelivery : patch.delivery;
   const sessionTarget =
     patch.sessionTarget === undefined ? currentJob.sessionTarget : patch.sessionTarget;
   if (patch.sessionTarget === "current" && currentJob.sessionTarget !== "current") {
@@ -165,7 +178,7 @@ export async function preflightCronMutation(
     return;
   }
   if (method === "cron.update") {
-    assertEffectiveCronDelivery(context, job, prepared);
+    prepareEffectiveCronUpdate(context, job, prepared);
   }
   await assertConfiguredCronModel(context, method, prepared, job);
   const expectedConfigRevision = optionalString(prepared.expectedConfigRevision);

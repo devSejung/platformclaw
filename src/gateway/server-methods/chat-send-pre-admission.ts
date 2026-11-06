@@ -124,6 +124,7 @@ export async function runChatSendPreAdmission(params: {
       agentId: session.agentId,
       sessionKey,
       senderAttribution: request.senderAttribution,
+      personalAutomationsAgentId: session.personalAutomationsAgentId,
     })
   ) {
     return false;

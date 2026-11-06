@@ -388,6 +388,7 @@ export function prepareEmbeddedAttemptStream(input: {
     attempt.onAttemptAbort?.();
     input.abortRun(false, reason === "restart" ? createAgentRunRestartAbortError() : undefined);
   };
+  const personalAutomationsAgentId = attempt.toolBindings?.personalAutomations;
   const queueHandle: AttemptStreamQueueHandle = {
     kind: "embedded",
     runId: attempt.runId,
@@ -421,6 +422,7 @@ export function prepareEmbeddedAttemptStream(input: {
     supportsQueueMessageImages: true,
     sourceReplyDeliveryMode: attempt.sourceReplyDeliveryMode,
     taskSuggestionDeliveryMode: attempt.taskSuggestionDeliveryMode,
+    ...(typeof personalAutomationsAgentId === "string" ? { personalAutomationsAgentId } : {}),
     cancel: abortActiveRunExternally,
     abort: (reason) => abortActiveRunExternally(reason),
   };

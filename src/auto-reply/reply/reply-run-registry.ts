@@ -51,6 +51,7 @@ export type ReplyBackendQueueMessageOptions = {
   waitForTranscriptCommit?: boolean;
   sourceReplyDeliveryMode?: SourceReplyDeliveryMode;
   taskSuggestionDeliveryMode?: TaskSuggestionDeliveryMode;
+  personalAutomationsAgentId?: string;
   /** Prepared channel turn to merge only at transcript persistence. */
   userTurnTranscriptRecorder?: UserTurnTranscriptRecorder;
 };
@@ -65,6 +66,7 @@ export type ReplyBackendHandle = {
   readonly kind: ReplyBackendKind;
   readonly sourceReplyDeliveryMode?: SourceReplyDeliveryMode;
   readonly taskSuggestionDeliveryMode?: TaskSuggestionDeliveryMode;
+  readonly personalAutomationsAgentId?: string;
   /** True only when queueMessage preserves images supplied in its options. */
   readonly supportsQueueMessageImages?: boolean;
   cancel(reason?: ReplyBackendCancelReason): void;
@@ -85,16 +87,25 @@ export type ReplyBackendHandle = {
 type ReplyBackendQueueMessageMismatch =
   | "image_input_unsupported"
   | "source_reply_delivery_mode_mismatch"
-  | "task_suggestion_delivery_mode_mismatch";
+  | "task_suggestion_delivery_mode_mismatch"
+  | "personal_automations_scope_mismatch";
 
 /** Prevents steering a turn into a run that cannot preserve its model-facing input. */
 export function resolveReplyBackendQueueMessageMismatch(
   backend: Pick<
     ReplyBackendHandle,
-    "sourceReplyDeliveryMode" | "supportsQueueMessageImages" | "taskSuggestionDeliveryMode"
+    | "sourceReplyDeliveryMode"
+    | "supportsQueueMessageImages"
+    | "taskSuggestionDeliveryMode"
+    | "personalAutomationsAgentId"
   >,
   options?: ReplyBackendQueueMessageOptions,
 ): ReplyBackendQueueMessageMismatch | undefined {
+  // Live steering uses the active run's tools. A different grant needs its own
+  // queued turn, even when both inputs address the same conversation.
+  if (options?.personalAutomationsAgentId !== backend.personalAutomationsAgentId) {
+    return "personal_automations_scope_mismatch";
+  }
   if (options?.images?.length && backend.supportsQueueMessageImages !== true) {
     return "image_input_unsupported";
   }

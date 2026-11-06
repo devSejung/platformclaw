@@ -8,7 +8,14 @@ type GatewayClientSender = ChatSenderAttribution;
 /** Normalize wire attribution before any send scope or session lifecycle is acquired. */
 export function normalizeRequestedGatewaySenderAttribution(
   sender: GatewayClientSender | undefined,
+  personalAutomations?: true,
 ): { ok: true; value: GatewayClientSender | undefined } | { ok: false; error: string } {
+  if (personalAutomations && (sender?.isOwner !== false || !sender.agentId?.trim())) {
+    return {
+      ok: false,
+      error: "personal automations require restricted sender attribution with an agent ID",
+    };
+  }
   if (!sender) {
     return { ok: true, value: undefined };
   }
