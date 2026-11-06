@@ -13,6 +13,7 @@ import type { GuardedFetchOptions } from "../infra/net/fetch-guard.js";
 import { peekSystemEvents } from "../infra/system-events.js";
 import { getGatewayProcessInstanceId } from "./process-instance.js";
 import type { GatewayCronState } from "./server-cron.js";
+import type { GatewayClient } from "./server-methods/types.js";
 import {
   connectOk,
   cronIsolatedRun,
@@ -251,6 +252,7 @@ async function directCronReq(
   cronState: DirectCronState,
   method: string,
   params: Record<string, unknown>,
+  client: GatewayClient | null = null,
 ): Promise<DirectCronResponse> {
   const { cronHandlers } = await import("./server-methods/cron.js");
   let result: DirectCronResponse | undefined;
@@ -283,7 +285,7 @@ async function directCronReq(
         },
         getRuntimeConfig: cronState.getRuntimeConfig,
       } as never,
-      client: null,
+      client,
       isWebchatConnect: () => false,
     });
   } catch (err) {
@@ -493,6 +495,93 @@ describe("gateway server cron", () => {
         sessionTarget: "isolated",
         delivery: { mode: "announce" },
       });
+    } finally {
+      await cleanupCronTestRun({ cronState, prevSkipCron });
+    }
+  });
+
+  test("schedules a WebChat transcript completion only for the signed current session", async () => {
+    const { prevSkipCron } = await setupCronTestRun({
+      tempPrefix: "openclaw-gw-cron-current-webchat-",
+      cronEnabled: false,
+    });
+    const cronEvents = createCronEventCollector();
+    const cronState = await createDirectCronState({ broadcast: cronEvents.broadcast });
+    const sessionKey = "agent:main:main";
+    const client: GatewayClient = {
+      connect: {} as GatewayClient["connect"],
+      internal: { agentRuntimeIdentity: { kind: "agentRuntime", agentId: "main", sessionKey } },
+    };
+    const params = {
+      name: "private conversation reminder",
+      schedule: { kind: "every", everyMs: 60_000 },
+      sessionTarget: "current",
+      sessionKey,
+      payload: { kind: "agentTurn", message: "remember this", toolsAllow: [] },
+      delivery: { mode: "announce", channel: "webchat" },
+      failureAlert: false,
+    };
+    try {
+      const forged = await directCronReq(cronState, "cron.add", {
+        ...params,
+        owner: { agentId: "main", sessionKey, accountId: "default" },
+      });
+      expect(forged).toMatchObject({ ok: false, error: { code: "INVALID_REQUEST" } });
+      const sibling = await directCronReq(
+        cronState,
+        "cron.add",
+        { ...params, sessionKey: "agent:main:dashboard:sibling" },
+        client,
+      );
+      expect(sibling).toMatchObject({ ok: false, error: { code: "INVALID_REQUEST" } });
+      const outbound = await directCronReq(
+        cronState,
+        "cron.add",
+        { ...params, delivery: { ...params.delivery, to: "knox:stale-room" } },
+        client,
+      );
+      expect(outbound).toMatchObject({ ok: false, error: { code: "INVALID_REQUEST" } });
+
+      const added = await directCronReq(cronState, "cron.add", params, client);
+      const jobId = expectCronJobIdFromResponse(added);
+      const scheduledToolPolicy = {
+        mode: "account",
+        ownerSessionKey: sessionKey,
+        ownerAccountId: "default",
+      };
+      expect(await cronState.cron.readJob(jobId)).toMatchObject({
+        owner: { agentId: "main", sessionKey, accountId: "default" },
+        sessionKey,
+        sessionTarget: "current",
+        delivery: params.delivery,
+        scheduledToolPolicy,
+      });
+      let configRevision = (added.payload as { configRevision: string }).configRevision;
+      for (const mode of ["none", "announce"]) {
+        const delivery = { mode, channel: "webchat" };
+        expect(configRevision).toEqual(expect.any(String));
+        const updated = await directCronReq(cronState, "cron.update", {
+          id: jobId,
+          expectedConfigRevision: configRevision,
+          patch: { sessionKey, delivery },
+        });
+        expect(updated).toMatchObject({ ok: true, payload: { sessionKey, delivery } });
+        expect(await cronState.cron.readJob(jobId)).toMatchObject({ scheduledToolPolicy });
+        configRevision = (updated.payload as { configRevision: string }).configRevision;
+      }
+      const finished = cronEvents.wait(
+        (payload) => payload.jobId === jobId && payload.action === "finished",
+      );
+      cronIsolatedRun.mockResolvedValueOnce({ status: "ok", summary: "private reminder" });
+      const run = await directCronReq(cronState, "cron.run", { id: jobId, mode: "force" }, client);
+      expect(run.ok).toBe(true);
+      expectEnqueuedRunPayload(run.payload);
+      expect(await finished).toMatchObject({ status: "ok", summary: "private reminder" });
+      expect(cronIsolatedRun).toHaveBeenCalledWith(
+        expect.objectContaining({
+          job: expect.objectContaining({ sessionKey, delivery: params.delivery }),
+        }),
+      );
     } finally {
       await cleanupCronTestRun({ cronState, prevSkipCron });
     }

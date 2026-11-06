@@ -1,12 +1,39 @@
 import { isRecord } from "@openclaw/normalization-core/record-coerce";
 import { ErrorCodes, errorShape } from "../../../packages/gateway-protocol/src/index.js";
 import type { ChatSenderAttribution } from "../../../packages/gateway-protocol/src/schema/logs-chat.js";
+import type { SessionEntry } from "../../config/sessions.js";
+import { parseAgentSessionKey, parseSessionDeliveryRoute } from "../../routing/session-key.js";
 import { chatSendScopeDedupeKey, pendingChatSendDedupeKey } from "../server-shared.js";
 import {
   gatewayClientSenderFields,
   gatewayClientSenderIsOwner,
 } from "./gateway-client-identity.js";
 import type { GatewayRequestHandlerOptions } from "./types.js";
+
+export function resolvePersonalAutomationsAgentId(params: {
+  personalAutomations?: true;
+  senderAttribution?: ChatSenderAttribution;
+  requestedKey: string;
+  sessionKey: string;
+  agentId: string;
+  chatType?: SessionEntry["chatType"];
+}): string | undefined {
+  // The relay checked the requested key against its Space registry. A canonical
+  // route change must not carry that proof over to another conversation.
+  if (
+    !params.personalAutomations ||
+    params.senderAttribution?.isOwner !== false ||
+    params.senderAttribution.agentId !== params.agentId ||
+    params.requestedKey.trim() !== params.sessionKey ||
+    parseAgentSessionKey(params.sessionKey)?.agentId !== params.agentId ||
+    params.chatType === "group" ||
+    params.chatType === "channel"
+  ) {
+    return undefined;
+  }
+  const peerKind = parseSessionDeliveryRoute(params.sessionKey)?.peerKind;
+  return peerKind === "group" || peerKind === "channel" ? undefined : params.agentId;
+}
 
 /** Bind globally indexed run IDs before any replay, await, or steer interruption. */
 export function requireChatSendScope(params: {
@@ -17,6 +44,7 @@ export function requireChatSendScope(params: {
   agentId: string;
   sessionKey: string;
   senderAttribution?: ChatSenderAttribution;
+  personalAutomationsAgentId?: string;
 }): { requestIdentity: string } | undefined {
   const { context, runId } = params;
   const sender = gatewayClientSenderFields(params.client, params.senderAttribution).sender;
@@ -33,6 +61,7 @@ export function requireChatSendScope(params: {
     owner,
     gatewayClientSenderIsOwner(params.client, params.senderAttribution),
     sender?.agentId ?? null,
+    ...(params.personalAutomationsAgentId ? [params.personalAutomationsAgentId] : []),
   ]);
   const scopeKey = chatSendScopeDedupeKey(runId);
   const prior = context.dedupe.get(scopeKey);

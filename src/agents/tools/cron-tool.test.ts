@@ -192,6 +192,76 @@ describe("cron tool", () => {
     extractDeliveryInfoMock.mockReturnValue({ deliveryContext: undefined, threadId: undefined });
   });
 
+  describe("personal automations", () => {
+    const sessionKey = "agent:personal:main";
+    const job = {
+      name: "reminder",
+      schedule: { kind: "at", at: new Date(123).toISOString() },
+      payload: { kind: "agentTurn", message: "Remind me about the report." },
+    };
+
+    it("creates a signed current-session agent turn with a bounded tool cap", async () => {
+      const callGatewayTool = vi.fn().mockImplementation(async () => {
+        expect(getGatewayToolCallerIdentity()).toMatchObject({
+          agentId: "personal",
+          sessionKey,
+        });
+        return { ok: true };
+      });
+      const tool = createCronTool(
+        {
+          agentSessionKey: sessionKey,
+          personalSessionKey: sessionKey,
+          creatorToolAllowlist: ["read", "automations", "message"],
+          currentDeliveryContext: { channel: "knox", to: "knox-recipient" },
+        },
+        { callGatewayTool },
+      );
+
+      await tool.execute("personal-add", { action: "add", job });
+
+      expect(callGatewayTool).toHaveBeenCalledExactlyOnceWith(
+        "cron.add",
+        expect.anything(),
+        expect.objectContaining({
+          agentId: "personal",
+          sessionTarget: "current",
+          sessionKey,
+          delivery: { mode: "announce", channel: "webchat" },
+          failureAlert: false,
+          payload: {
+            ...job.payload,
+            toolsAllow: ["read"],
+            toolsAllowIsDefault: true,
+          },
+        }),
+        { requireAgentRuntimeIdentity: true },
+      );
+    });
+
+    it.each([
+      { action: "wake", text: "Wake now." },
+      { action: "run", jobId: "existing" },
+      { action: "add", job, gatewayToken: "different-credential" },
+      { action: "add", job, gatewayUrl: "ws://127.0.0.1:18789" },
+      { action: "add", job: { ...job, sessionKey: "agent:personal:other" } },
+      { action: "add", job: { ...job, delivery: { mode: "announce", channel: "knox" } } },
+      { action: "add", job: { ...job, failureAlert: { to: "https://example.com" } } },
+      { action: "add", job: { ...job, trigger: { script: "return true" } } },
+      { action: "add", job: { ...job, schedule: { kind: "stream" } } },
+      { action: "add", job: { ...job, payload: { kind: "systemEvent", text: "hello" } } },
+    ])("rejects tool input outside the personal scheduling schema (%j)", async (args) => {
+      const callGatewayTool = vi.fn();
+      const tool = createCronTool(
+        { agentSessionKey: sessionKey, personalSessionKey: sessionKey },
+        { callGatewayTool },
+      );
+
+      await expect(tool.execute("personal-add", args)).rejects.toThrow("Personal automations");
+      expect(callGatewayTool).not.toHaveBeenCalled();
+    });
+  });
+
   it("allows scoped isolated cron runs to remove the current job", async () => {
     // Self-removal scope lets a cron-triggered run clean up its own schedule
     // without granting broad cron mutation access.

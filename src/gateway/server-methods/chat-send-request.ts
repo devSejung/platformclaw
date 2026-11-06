@@ -60,6 +60,7 @@ type ChatSendRequestParams = {
   systemProvenanceReceipt?: string;
   suppressCommandInterpretation?: boolean;
   senderAttribution?: ChatSenderAttribution;
+  personalAutomations?: true;
   expectedLeafEntryId?: string | null;
   requireExactLeaf?: boolean;
   expectedSessionRoutingContract?: string;
@@ -124,7 +125,10 @@ export function normalizeChatSendRequest(params: {
     p.queueMode = "followup";
   }
   const suppressCommandInterpretation = p.suppressCommandInterpretation === true;
-  const requestedSenderResult = normalizeRequestedGatewaySenderAttribution(p.senderAttribution);
+  const requestedSenderResult = normalizeRequestedGatewaySenderAttribution(
+    p.senderAttribution,
+    p.personalAutomations,
+  );
   if (!requestedSenderResult.ok) {
     return requestedSenderResult;
   }
@@ -172,6 +176,9 @@ export function normalizeChatSendRequest(params: {
   const senderAttribution = resolveGatewaySenderAttribution(client, requestedSenderAttribution);
   const stopCommand = !suppressCommandInterpretation && isChatStopCommandText(inboundMessage);
   if (p.toolBindings) {
+    if (Object.hasOwn(p.toolBindings, "personalAutomations")) {
+      return { ok: false, error: "personal automations tool binding is reserved" };
+    }
     if (
       !client ||
       !isBrowserCopilotClient(clientInfo) ||

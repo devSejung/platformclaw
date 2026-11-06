@@ -35,10 +35,14 @@ describe("Space-created personal conversations", () => {
       expect.objectContaining({
         agentId: f.alice.binding.agentId,
         sessionKey: conversation.sessionKey,
-        senderAttribution: expect.objectContaining({ profileId: f.alice.user.id }),
+        senderAttribution: expect.objectContaining({
+          profileId: f.alice.user.id,
+          isOwner: false,
+        }),
         deliver: false,
       }),
     );
+    expect(f.request.mock.lastCall?.[1]).not.toHaveProperty("personalAutomations");
     expect(await create(f)).toEqual(conversation);
     expect(f.request.mock.calls.filter(([method]) => method === "sessions.create")).toHaveLength(1);
     await expect(

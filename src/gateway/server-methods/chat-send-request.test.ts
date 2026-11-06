@@ -203,6 +203,45 @@ describe("normalizeChatSendRequest", () => {
     ).toMatchObject({ ok: true, value: { p: { toolBindings } } });
   });
 
+  it("requires admin scope and explicit restricted attribution for personal automations", () => {
+    const client = adminClient();
+    client.internal = {
+      syntheticClient: true,
+      senderAttribution: { id: "internal.user", agentId: "main", isOwner: false },
+    };
+    const personalAutomations = true;
+    const senderAttribution = { id: "browser.user", agentId: " main ", isOwner: false };
+    expect(
+      normalizeChatSendRequest({ params: validParams({ personalAutomations }), client }),
+    ).toEqual({
+      ok: false,
+      error: "personal automations require restricted sender attribution with an agent ID",
+    });
+    const params = validParams({ personalAutomations, senderAttribution });
+    expect(normalizeChatSendRequest({ params, client: null })).toEqual({
+      ok: false,
+      error: "sender attribution requires admin scope",
+    });
+    expect(normalizeChatSendRequest({ params, client })).toMatchObject({
+      ok: true,
+      value: { p: { personalAutomations }, senderAttribution: { agentId: "main", isOwner: false } },
+    });
+  });
+
+  it("rejects a paired copilot's attempt to set the reserved personal automations binding", () => {
+    expect(
+      normalizeChatSendRequest({
+        params: validParams({
+          toolBindings: {
+            browser: { kind: "tab", tabId: 1, targetId: "target" },
+            personalAutomations: "main",
+          },
+        }),
+        client: copilotClient(["run-tool-bindings"]),
+      }),
+    ).toEqual({ ok: false, error: "personal automations tool binding is reserved" });
+  });
+
   it("accepts tool bindings only from a server-paired copilot identity", () => {
     const toolBindings = { browser: { kind: "tab", tabId: 1, targetId: "target" } };
     const unpaired = copilotClient(["run-tool-bindings"]);

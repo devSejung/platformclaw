@@ -45,6 +45,7 @@ export type EmbeddedAgentQueueHandle = {
   abort: (reason?: "restart") => void;
   sourceReplyDeliveryMode?: SourceReplyDeliveryMode;
   taskSuggestionDeliveryMode?: TaskSuggestionDeliveryMode;
+  personalAutomationsAgentId?: string;
 };
 
 export type EmbeddedAgentQueueMessageOptions = ReplyBackendQueueMessageOptions;

@@ -4,6 +4,7 @@
  * Manages scheduled jobs, wake/run actions, delivery context, and reminder-style payload normalization.
  */
 import { normalizeLowercaseStringOrEmpty } from "@openclaw/normalization-core/string-coerce";
+import { Check } from "typebox/value";
 import { parseDurationMs } from "../../cli/parse-duration.js";
 import { getRuntimeConfig, type OpenClawConfig } from "../../config/config.js";
 import { resolveCronCreationDelivery } from "../../cron/delivery-context.js";
@@ -44,6 +45,7 @@ import {
   assertCronPacingInput,
   createCronToolSchema,
   CRON_TOOL_LIST_MAX_LIMIT,
+  personalCronToolSchema,
 } from "./cron-tool-schema.js";
 import { assertNoCronShellExecution, updateCronJobFromAgentTool } from "./cron-tool-write.js";
 import type {
@@ -284,11 +286,16 @@ function isOlderGatewayWithoutCompactCronList(error: unknown): boolean {
 
 export function createCronTool(opts?: CronToolOptions, deps?: CronToolDeps): AnyAgentTool {
   const callGateway = deps?.callGatewayTool ?? callGatewayTool;
+  const personalSessionKey = opts?.personalSessionKey;
   const tool: AnyAgentTool = {
     label: "Automations",
     name: AUTOMATIONS_TOOL_NAME,
-    displaySummary: CRON_TOOL_DISPLAY_SUMMARY,
-    description: `Gateway scheduler: reminders, delayed self-wakeups, loops, recurring work, event watchers. Never exec sleep/poll as timer.
+    displaySummary: personalSessionKey
+      ? "Schedule reminders and recurring work in this conversation."
+      : CRON_TOOL_DISPLAY_SUMMARY,
+    description: personalSessionKey
+      ? "Schedule a reminder or recurring agent task in this conversation. Use add with an at, every, or cron schedule and an agentTurn message. Results appear in this conversation."
+      : `Gateway scheduler: reminders, delayed self-wakeups, loops, recurring work, event watchers. Never exec sleep/poll as timer.
 
 ACTIONS: status | list [includeDisabled,limit?,offset?] (use nextOffset for the next page) | get jobId | add job | update jobId patch | remove jobId | run jobId (runMode "force"=now) | runs jobId = history | next_check in:"30m" (own paced run only) | wake text mode?:"now"|"next-heartbeat"(default) nudges a caller-owned lane (sessionKey/agentId to pick another).
 
@@ -315,8 +322,16 @@ TRIGGER (condition watcher on every/cron): {script,once?}; needs cron.triggers.e
 DELIVERY {mode:"none"|"announce"|"webhook",channel?,to?,threadId?,bestEffort?}: where detached run output goes. Omitted=announce (current=>canonical session commit, plus one normal channel send for external chats; isolated=>last route; set channel/to for a specific chat — no messaging tool inside the run). A current announce succeeds only after its history commit; WebChat observes that commit live and after reconnect without another user message. Silent watcher=>mode:"none". webhook posts finished-run event to URL in \`to\`.
 
 Job wakeMode (main jobs): "now"(default)|"next-heartbeat". Restricted automation-run sessions: self status/list/get/runs/remove + own next_check only. failureAlert {...}|false disables. jobId canonical (id=compat). contextMessages 0-10 embeds recent chat lines into reminder text.`,
-    parameters: createCronToolSchema(),
+    parameters: personalSessionKey ? personalCronToolSchema : createCronToolSchema(),
     execute: async (_toolCallId, args) => {
+      if (personalSessionKey && personalSessionKey !== opts?.agentSessionKey?.trim()) {
+        throw new Error("Personal automations require the active conversation.");
+      }
+      if (personalSessionKey && !Check(personalCronToolSchema, args)) {
+        throw new Error(
+          "Personal automations accept only add with an at, every, or cron schedule and an agentTurn message in this conversation.",
+        );
+      }
       const params = args as Record<string, unknown>;
       const action = readStringParam(params, "action", { required: true });
       assertCronSelfRemoveScope(opts, action, params);
@@ -440,6 +455,12 @@ Job wakeMode (main jobs): "now"(default)|"next-heartbeat". Restricted automation
               throw new Error("job required");
             }
             const canonicalJob = canonicalizeCronToolObject(params.job as Record<string, unknown>);
+            if (personalSessionKey) {
+              canonicalJob.sessionTarget = "current";
+              canonicalJob.sessionKey = personalSessionKey;
+              canonicalJob.delivery = { mode: "announce", channel: "webchat" };
+              canonicalJob.failureAlert = false;
+            }
             assertNoCronShellExecution(canonicalJob);
             assertCronDeliveryInputNonBlankFields(canonicalJob.delivery);
             assertCronPacingInput(canonicalJob.pacing, { nullableClears: false });
@@ -467,7 +488,14 @@ Job wakeMode (main jobs): "now"(default)|"next-heartbeat". Restricted automation
             ) {
               delete job.enabled;
             }
-            capCronJobToolsAllowOnCreate(job, opts?.creatorToolAllowlist);
+            // Detached personal jobs must not recover delivery or scheduling tools by name.
+            const creatorToolAllowlist = personalSessionKey
+              ? (opts?.creatorToolAllowlist ?? []).filter((tool) => {
+                  const name = typeof tool === "string" ? tool : tool.name;
+                  return name !== AUTOMATIONS_TOOL_NAME && name !== "message";
+                })
+              : opts?.creatorToolAllowlist;
+            capCronJobToolsAllowOnCreate(job, creatorToolAllowlist);
             if (job && typeof job === "object") {
               const { mainKey, alias } = resolveMainSessionAlias(runtimeConfig);
               const resolvedSessionKey = opts?.agentSessionKey
@@ -574,9 +602,11 @@ Job wakeMode (main jobs): "now"(default)|"next-heartbeat". Restricted automation
               }
             }
             return jsonResult(
-              await callGateway("cron.add", gatewayOpts, {
-                ...job,
-              }),
+              personalSessionKey
+                ? await callGateway("cron.add", gatewayOpts, job, {
+                    requireAgentRuntimeIdentity: true,
+                  })
+                : await callGateway("cron.add", gatewayOpts, { ...job }),
             );
           }
           case "update": {

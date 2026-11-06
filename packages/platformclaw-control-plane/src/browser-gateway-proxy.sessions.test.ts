@@ -400,6 +400,7 @@ describe("BrowserGatewayProxy session lifecycle", () => {
           agentId: binding.agentId,
           deliver: false,
           suppressCommandInterpretation: true,
+          personalAutomations: true,
           senderAttribution: {
             id: user.accountId,
             name: user.displayName,

@@ -79,6 +79,7 @@ type EmbeddedAgentQueueFailureReason =
   | "image_input_unsupported"
   | "source_reply_delivery_mode_mismatch"
   | "task_suggestion_delivery_mode_mismatch"
+  | "personal_automations_scope_mismatch"
   | "transcript_commit_wait_unsupported"
   | "question_unavailable"
   | "runtime_rejected";

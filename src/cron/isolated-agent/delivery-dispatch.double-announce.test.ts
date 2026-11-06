@@ -172,11 +172,12 @@ import {
 } from "../../infra/outbound/outbound-session.js";
 import { buildOutboundSessionContext } from "../../infra/outbound/session-context.js";
 import { enqueueSystemEvent } from "../../infra/system-events.js";
+import { resolveCronDeliveryPlan, resolveFailureDestination } from "../delivery-plan.js";
 import {
   dispatchCronDelivery,
   queueCronMessageToolDeliveryAwareness,
 } from "./delivery-dispatch.js";
-import type { DeliveryTargetResolution } from "./delivery-target.js";
+import { resolveDeliveryTarget, type DeliveryTargetResolution } from "./delivery-target.js";
 import type { RunCronAgentTurnResult } from "./run.types.js";
 import { expectsSubagentFollowup, isLikelyInterimCronMessage } from "./subagent-followup-hints.js";
 import {
@@ -2946,15 +2947,13 @@ describe("dispatchCronDelivery — double-announce guard", () => {
       sessionTarget: "current",
       runStartedAt: 1_000,
     });
-    params.resolvedDelivery = {
-      ok: false,
-      channel: "webchat",
-      to: undefined,
-      accountId: undefined,
-      threadId: undefined,
-      mode: "implicit",
-      error: new Error("webchat has no outbound adapter"),
-    };
+    const channel = "webchat";
+    params.job.delivery = { mode: "announce", channel };
+    params.resolvedDelivery = await resolveDeliveryTarget(params.cfg, params.agentId, {
+      channel,
+      sessionKey: params.sourceSessionKey,
+    });
+    expect(params.resolvedDelivery).toMatchObject({ ok: false, channel, mode: "explicit" });
 
     const state = await dispatchCronDelivery(params);
 
@@ -2970,6 +2969,15 @@ describe("dispatchCronDelivery — double-announce guard", () => {
       signal: undefined,
     });
     expect(deliverOutboundPayloads).not.toHaveBeenCalled();
+
+    const failureDestination = { mode: "webhook" as const, to: "https://example.invalid" };
+    expect(resolveFailureDestination(params.job, failureDestination)).toBeNull();
+    params.job.delivery = { mode: "none", channel };
+    expect(resolveFailureDestination(params.job, failureDestination)).toBeNull();
+    expect(resolveCronDeliveryPlan(params.job)).toMatchObject({
+      requested: false,
+      channel: undefined,
+    });
   });
 
   it("commits a dashboard current-target completion without an external route", async () => {

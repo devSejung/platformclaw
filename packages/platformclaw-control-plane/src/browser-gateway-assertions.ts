@@ -24,7 +24,7 @@ export class BrowserGatewayAssertions {
     }
   }
 
-  ownedSessionKey(agentId: string, rawSessionKey: unknown, label: string): void {
+  ownedSessionKey(agentId: string, rawSessionKey: unknown, label: string): string {
     const sessionKey = optionalString(rawSessionKey);
     if (!sessionKey) {
       this.fail("invalid-params", `${label} is required`);
@@ -32,6 +32,7 @@ export class BrowserGatewayAssertions {
     if (this.resolveAgentIdFromSessionKey(sessionKey) !== agentId) {
       this.fail("cross-agent-denied", `browser access denied for ${label}`);
     }
+    return sessionKey;
   }
 
   sessionKeyArray(agentId: string, value: unknown, label: string, required: boolean): void {

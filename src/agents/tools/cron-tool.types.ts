@@ -20,6 +20,8 @@ export type CronToolOptions = {
    * need this cap persisted before the original session policy is lost.
    */
   creatorToolAllowlist?: CronCreatorToolAllowlistEntry[];
+  /** Host-authorized source session for add-only personal automations. */
+  personalSessionKey?: string;
   selfRemoveOnlyJobId?: string;
   runId?: string;
 };

@@ -558,6 +558,7 @@ describe("BrowserGatewayProxy", () => {
         deliver: false,
         queueMode: "steer",
         expectedLeafEntryId: "leaf-1",
+        personalAutomations: true,
         replyToId: "message-1",
         senderAttribution: expect.objectContaining({
           id: user.accountId,
@@ -760,6 +761,7 @@ describe("BrowserGatewayProxy", () => {
       sessionKey: createdKey,
       agentId: binding.agentId,
       message: "hello",
+      personalAutomations: true,
       idempotencyKey: expect.any(String),
       deliver: false,
       senderAttribution: expect.objectContaining({
@@ -806,6 +808,7 @@ describe("BrowserGatewayProxy", () => {
       sessionKey: createdKey,
       agentId: binding.agentId,
       message: "",
+      personalAutomations: true,
       attachments: [attachment],
       idempotencyKey: expect.any(String),
       deliver: false,

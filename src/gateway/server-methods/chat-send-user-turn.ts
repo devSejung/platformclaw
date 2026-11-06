@@ -344,7 +344,9 @@ export function prepareChatSendUserTurn(params: {
     suppressCommandInterpretation: request.suppressCommandInterpretation,
     systemInputProvenance: request.systemInputProvenance,
     systemProvenanceReceipt: request.systemProvenanceReceipt,
-    toolBindings: request.toolBindings,
+    toolBindings: session.personalAutomationsAgentId
+      ? { ...request.toolBindings, personalAutomations: session.personalAutomationsAgentId }
+      : request.toolBindings,
   });
   const mediaPathOffloadsIncludeImages = attachments.mediaPathOffloadTypes.some((type) =>
     type.startsWith("image/"),

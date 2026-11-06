@@ -66,9 +66,16 @@ async function setup(existingSession = true) {
     method: SendMethod,
     runId: string,
     senderAttribution: ChatSenderAttribution,
+    personalAutomations?: true,
   ) => {
     const handler = expectDefined(sessionMessagingHandlers[method], "session messaging handler");
-    const params = { key: sessionKey, message: "hello", idempotencyKey: runId, senderAttribution };
+    const params = {
+      key: sessionKey,
+      message: "hello",
+      idempotencyKey: runId,
+      senderAttribution,
+      ...(personalAutomations ? { personalAutomations } : {}),
+    };
     const respond = vi.fn();
     await handler({
       req: { type: "req", id: runId, method, params },
@@ -127,6 +134,23 @@ it.each(
     expect(ctx).toMatchObject({ SenderId: "first.user", SenderIsOwner: false });
     expect(ctx.SenderAgentId).toBe(expectedAgentId);
     expect(ctx.GatewayClientScopes).not.toContain("operator.admin");
+  },
+);
+
+it.each(
+  (["sessions.send", "sessions.steer"] as const).flatMap((method) => [
+    { method, agentId: " main ", expectedBindings: { personalAutomations: "main" } },
+    { method, agentId: "foreign", expectedBindings: undefined },
+  ]),
+)(
+  "$method scopes personal automations to the canonical run Agent ($agentId)",
+  async ({ method, agentId, expectedBindings }) => {
+    const { context, invoke } = await setup();
+    const runId = `${method}-personal-automations`;
+    await invoke(method, runId, { id: "browser.user", agentId, isOwner: false }, true);
+    const ctx = await expectDispatched(context, runId);
+    expect(ctx).toMatchObject({ SenderIsOwner: false, GatewayClientScopes: [] });
+    expect(ctx.GatewayRunToolBindings).toEqual(expectedBindings);
   },
 );
 

@@ -637,7 +637,11 @@ export class BrowserGatewayProxy {
     const keyField = PLATFORMCLAW_WEB_SESSION_KEY_METHODS.get(method);
     if (keyField) {
       this.assertions.optionalAgentId(access.binding.agentId, params.agentId, method);
-      this.assertions.ownedSessionKey(access.binding.agentId, params[keyField], keyField);
+      const sessionKey = this.assertions.ownedSessionKey(
+        access.binding.agentId,
+        params[keyField],
+        keyField,
+      );
       if (method === "chat.send" || method === "sessions.send" || method === "sessions.steer") {
         const gatewayParams = { ...params };
         delete gatewayParams["__controlUiReconnectResume"];
@@ -647,6 +651,7 @@ export class BrowserGatewayProxy {
           deliver: false,
           // Browser parameters are validated before this server-owned identity is added.
           senderAttribution: createBrowserSenderAttribution(access),
+          ...(this.spaceAccess.isPersonalSession(sessionKey) ? { personalAutomations: true } : {}),
         };
       }
       // Never let a browser-selected run id cross the shared Gateway client.

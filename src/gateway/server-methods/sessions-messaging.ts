@@ -30,7 +30,7 @@ import { formatForLog } from "../ws-log.js";
 import { handleChatAbortRequestWithLifecycle } from "./chat-abort-handler.js";
 import { hasGatewayAdminScope, resolveChatSendSessionLoadKey } from "./chat-origin-routing.js";
 import { handleChatSend } from "./chat-send-handler.js";
-import { requireChatSendScope } from "./chat-send-scope.js";
+import { requireChatSendScope, resolvePersonalAutomationsAgentId } from "./chat-send-scope.js";
 import { chatHandlers } from "./chat.js";
 import { normalizeRequestedGatewaySenderAttribution } from "./gateway-client-identity.js";
 import { resolveGatewayInflightRequest, type GatewayInflightResult } from "./inflight.js";
@@ -328,7 +328,9 @@ async function handleSessionSend(params: {
   const p = params.params;
   // Relayed provenance must be authorized before creating or interrupting a session.
   if (
-    (p.suppressCommandInterpretation === true || p.senderAttribution !== undefined) &&
+    (p.suppressCommandInterpretation === true ||
+      p.senderAttribution !== undefined ||
+      p.personalAutomations === true) &&
     !hasGatewayAdminScope(params.client)
   ) {
     params.respond(
@@ -341,7 +343,10 @@ async function handleSessionSend(params: {
     );
     return;
   }
-  const requestedSenderResult = normalizeRequestedGatewaySenderAttribution(p.senderAttribution);
+  const requestedSenderResult = normalizeRequestedGatewaySenderAttribution(
+    p.senderAttribution,
+    p.personalAutomations,
+  );
   if (!requestedSenderResult.ok) {
     params.respond(
       false,
@@ -395,15 +400,25 @@ async function handleSessionSend(params: {
       ? rawIdempotencyKey.trim()
       : undefined;
   const idempotencyKey = explicitIdempotencyKey ?? randomUUID();
+  const agentId =
+    parseAgentSessionKey(canonicalKey)?.agentId ?? requestedAgentId ?? resolveDefaultAgentId(cfg);
+  const personalAutomationsAgentId = resolvePersonalAutomationsAgentId({
+    personalAutomations: p.personalAutomations,
+    senderAttribution,
+    requestedKey,
+    sessionKey: canonicalKey,
+    agentId,
+    chatType: entry?.chatType,
+  });
   const sendScope = requireChatSendScope({
     context: params.context,
     client: params.client,
     respond: params.respond,
     runId: idempotencyKey,
-    agentId:
-      parseAgentSessionKey(canonicalKey)?.agentId ?? requestedAgentId ?? resolveDefaultAgentId(cfg),
+    agentId,
     sessionKey: canonicalKey,
     senderAttribution,
+    personalAutomationsAgentId,
   });
   if (!sendScope) {
     return;
@@ -441,6 +456,7 @@ async function handleSessionSend(params: {
             ? { suppressCommandInterpretation: p.suppressCommandInterpretation }
             : {}),
           ...(senderAttribution !== undefined ? { senderAttribution } : {}),
+          ...(personalAutomationsAgentId ? { personalAutomations: true } : {}),
           attachments: (p as { attachments?: unknown[] }).attachments,
           timeoutMs: (p as { timeoutMs?: number }).timeoutMs,
           idempotencyKey,

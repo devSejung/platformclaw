@@ -709,6 +709,7 @@ describe("runReplyAgent active steering", () => {
     "image_input_unsupported",
     "source_reply_delivery_mode_mismatch",
     "task_suggestion_delivery_mode_mismatch",
+    "personal_automations_scope_mismatch",
     "transcript_commit_wait_unsupported",
     "runtime_rejected",
   ] as const)("queues a follow-up when active steering fails with %s", async (reason) => {

@@ -6,7 +6,7 @@ import { registerChatAbortController } from "../chat-abort.js";
 import { createDirectChatContext } from "../server-chat.agent-events.test-helpers.js";
 import { chatSendScopeDedupeKey, pendingChatSendDedupeKey } from "../server-shared.js";
 import { setGatewayDedupeEntry } from "./agent-job.js";
-import { requireChatSendScope } from "./chat-send-scope.js";
+import { requireChatSendScope, resolvePersonalAutomationsAgentId } from "./chat-send-scope.js";
 import { prepareAndAdmitChatSend } from "./chat-send-setup.js";
 import type { GatewayClient, GatewayRequestContext } from "./types.js";
 
@@ -73,6 +73,46 @@ function expectCollision(respond: ReturnType<typeof vi.fn>) {
 describe("chat send scope admission", () => {
   beforeEach(() => {
     scopeMocks.resolveDurableChatClaim.mockReset().mockResolvedValue({ kind: "continue" });
+  });
+
+  it("binds personal automations to the relay-verified key and separates retry authority", () => {
+    const sessionKey = "agent:alice:main";
+    const senderAttribution = { id: "alice", agentId: "alice", isOwner: false as const };
+    const automationScope = {
+      personalAutomations: true as const,
+      senderAttribution,
+      requestedKey: ` ${sessionKey} `,
+      sessionKey,
+      agentId: "alice",
+    };
+    const personalAutomationsAgentId = resolvePersonalAutomationsAgentId(automationScope);
+    expect(personalAutomationsAgentId).toBe("alice");
+    expect(
+      resolvePersonalAutomationsAgentId({ ...automationScope, requestedKey: "main" }),
+    ).toBeUndefined();
+    expect(
+      resolvePersonalAutomationsAgentId({ ...automationScope, chatType: "group" }),
+    ).toBeUndefined();
+    const channelKey = "agent:alice:discord:channel:123";
+    expect(
+      resolvePersonalAutomationsAgentId({
+        ...automationScope,
+        requestedKey: channelKey,
+        sessionKey: channelKey,
+      }),
+    ).toBeUndefined();
+    const sendScope = {
+      context: createDirectChatContext(),
+      client: null,
+      respond: vi.fn(),
+      runId: "same-human-automation-scope",
+      sessionKey,
+      agentId: "alice",
+      senderAttribution,
+    };
+    expect(requireChatSendScope({ ...sendScope, personalAutomationsAgentId })).toBeDefined();
+    expect(requireChatSendScope(sendScope)).toBeUndefined();
+    expectCollision(sendScope.respond);
   });
 
   it.each(["operator.admin", "operator.write"])(

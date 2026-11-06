@@ -17,6 +17,7 @@ import type { OutboundChannel } from "../../infra/outbound/targets.js";
 import { normalizeAccountId } from "../../routing/session-key.js";
 import { createLazyImportLoader } from "../../shared/lazy-promise.js";
 import { normalizeSessionDeliveryState } from "../../utils/delivery-context.shared.js";
+import { INTERNAL_MESSAGE_CHANNEL } from "../../utils/message-channel-constants.js";
 import { resolveCronStoredDeliveryContext } from "../delivery-context.js";
 import { resolveCronAgentSessionKey } from "./session-key.js";
 
@@ -146,6 +147,16 @@ export async function resolveDeliveryTarget(
   options?: { dryRun?: boolean; inheritSessionThread?: boolean },
 ): Promise<DeliveryTargetResolution> {
   const requestedChannel = typeof jobPayload.channel === "string" ? jobPayload.channel : "last";
+  if (requestedChannel === INTERNAL_MESSAGE_CHANNEL) {
+    // WebChat completion uses the bound transcript. Looking up a route here can
+    // otherwise inherit an external recipient from the agent's main session.
+    return {
+      ok: false,
+      channel: INTERNAL_MESSAGE_CHANNEL,
+      mode: "explicit",
+      error: new Error("WebChat delivery uses the owning session transcript"),
+    };
+  }
   const explicitTo = typeof jobPayload.to === "string" ? jobPayload.to : undefined;
   const allowMismatchedLastTo = requestedChannel === "last";
   const deliveryTargetRuntime = await loadDeliveryTargetRuntime();

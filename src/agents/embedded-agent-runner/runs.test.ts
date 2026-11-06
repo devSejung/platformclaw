@@ -517,6 +517,40 @@ describe("embedded-agent runner run registry", () => {
     expect(queueMessage).not.toHaveBeenCalled();
   });
 
+  it.each([
+    { activeScope: "alice", incomingScope: undefined, queued: false },
+    { activeScope: undefined, incomingScope: "alice", queued: false },
+    { activeScope: "alice", incomingScope: "bob", queued: false },
+    { activeScope: "alice", incomingScope: "alice", queued: true },
+    { activeScope: undefined, incomingScope: undefined, queued: true },
+  ])(
+    "steers only within the same personal automation scope ($activeScope/$incomingScope)",
+    async ({ activeScope, incomingScope, queued }) => {
+      const queueMessage = vi.fn(async () => {});
+      const sessionId = "personal-automation-steering";
+      setActiveEmbeddedRun(sessionId, {
+        ...createRunHandle(),
+        queueMessage,
+        personalAutomationsAgentId: activeScope,
+      });
+      const outcome = await queueEmbeddedAgentMessageWithOutcomeAsync(
+        sessionId,
+        "continue",
+        incomingScope ? { personalAutomationsAgentId: incomingScope } : undefined,
+      );
+      if (queued) {
+        expect(outcome.queued).toBe(true);
+        expect(queueMessage).toHaveBeenCalledOnce();
+      } else {
+        expect(outcome).toMatchObject({
+          queued: false,
+          reason: "personal_automations_scope_mismatch",
+        });
+        expect(queueMessage).not.toHaveBeenCalled();
+      }
+    },
+  );
+
   it("defaults active embedded steering to all pending messages", () => {
     const queueMessage = vi.fn(async () => {});
     setActiveEmbeddedRun("session-default-steer", {

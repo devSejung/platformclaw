@@ -23,6 +23,7 @@ import {
 } from "./chat-origin-routing.js";
 import { createRestartSafeChatRequest } from "./chat-restart-recovery.js";
 import type { NormalizedChatSendRequest } from "./chat-send-request.js";
+import { resolvePersonalAutomationsAgentId } from "./chat-send-scope.js";
 import { roundedChatSendTimingMs } from "./chat-server-timing.js";
 import { normalizeOptionalChatText } from "./chat-text-normalization.js";
 import type { GatewayRequestHandlerOptions } from "./types.js";
@@ -172,6 +173,14 @@ export function prepareChatSendSession(params: {
       requestedSessionId,
       backingSessionId,
       agentId,
+      personalAutomationsAgentId: resolvePersonalAutomationsAgentId({
+        personalAutomations: p.personalAutomations,
+        senderAttribution: request.senderAttribution,
+        requestedKey: rawSessionKey,
+        sessionKey,
+        agentId,
+        chatType: entry?.chatType,
+      }),
       activeRunScopeKey,
       resolvedSessionModel,
       resolvedSessionAuthProvider,

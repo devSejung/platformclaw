@@ -55,6 +55,7 @@ describe("BrowserGatewayProxy personal session messaging", () => {
         timeoutMs: 10_000,
         idempotencyKey: "run-1",
         deliver: false,
+        personalAutomations: true,
         suppressCommandInterpretation: true,
         senderAttribution: {
           id: user.accountId,
@@ -72,7 +73,12 @@ describe("BrowserGatewayProxy personal session messaging", () => {
       await expect(
         proxy.request(token, method, { key: "agent:other:main", message: "hello" }),
       ).rejects.toMatchObject({ code: "cross-agent-denied" });
-      for (const field of ["senderAttribution", "suppressCommandInterpretation", "deliver"]) {
+      for (const field of [
+        "senderAttribution",
+        "suppressCommandInterpretation",
+        "deliver",
+        "personalAutomations",
+      ]) {
         await expect(
           proxy.request(token, method, { key, message: "hello", [field]: true }),
         ).rejects.toMatchObject({ code: "method-not-allowed" });
