@@ -1,7 +1,5 @@
 import type { Api, Model, OpenAICompletionsCompat, Usage } from "@openclaw/llm-core";
-import type { ChatCompletionChunk } from "openai/resources/chat/completions.js";
 import { getAiTransportHost } from "../host.js";
-import { applyProviderReportedUsageCost, calculateCost } from "../model-utils.js";
 import type { BaseOpenAIStreamOptions } from "../provider-options.js";
 /** Shared options, usage shape, cache identity, ordering, and stream scheduling for OpenAI APIs. */
 import { clampOpenAIPromptCacheKey } from "../providers/openai-prompt-cache.js";
@@ -24,6 +22,8 @@ export const log = {
     getAiTransportHost().logWarn("openai-transport", message, data);
   },
 };
+
+export { parseOpenAICompletionsUsage } from "./openai-completions-usage.js";
 
 export type { OpenAICompletionsOptions } from "../provider-options.js";
 
@@ -67,39 +67,6 @@ export type MutableAssistantOutput = {
   errorType?: string;
   errorBody?: string;
 };
-
-export function parseOpenAICompletionsUsage(
-  rawUsage: NonNullable<ChatCompletionChunk["usage"]> & {
-    cost?: unknown;
-    prompt_cache_hit_tokens?: number;
-  },
-  model: Model,
-  options?: { includeReasoningTokens?: boolean },
-): MutableAssistantOutput["usage"] {
-  const cacheRead =
-    rawUsage.prompt_tokens_details?.cached_tokens ?? rawUsage.prompt_cache_hit_tokens ?? 0;
-  const cacheWrite = rawUsage.prompt_tokens_details?.cache_write_tokens || 0;
-  const input = Math.max(0, (rawUsage.prompt_tokens || 0) - cacheRead - cacheWrite);
-  const output = rawUsage.completion_tokens || 0;
-  const reasoningTokens = rawUsage.completion_tokens_details?.reasoning_tokens;
-  const usage: MutableAssistantOutput["usage"] = {
-    input,
-    output,
-    cacheRead,
-    cacheWrite,
-    // Managed transport exposes reasoning telemetry; the shipped package Usage shape does not.
-    ...(options?.includeReasoningTokens !== false &&
-    typeof reasoningTokens === "number" &&
-    Number.isFinite(reasoningTokens)
-      ? { reasoningTokens }
-      : {}),
-    totalTokens: input + output + cacheRead + cacheWrite,
-    cost: { input: 0, output: 0, cacheRead: 0, cacheWrite: 0, total: 0 },
-  };
-  calculateCost(model, usage);
-  applyProviderReportedUsageCost(usage, rawUsage.cost);
-  return usage;
-}
 
 type ModelStreamCooperativeScheduler = {
   afterEvent: () => Promise<void>;

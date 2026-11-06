@@ -17,10 +17,13 @@ import {
   resolveOpenAICompletionsCompat,
   type ResolvedOpenAICompletionsCompat,
 } from "../transports/openai-completions-compat.js";
+import {
+  applyOpenAICompletionsUsage,
+  type OpenAICompletionsUsageTarget,
+} from "../transports/openai-completions-usage.js";
 import { resolveOpenAIReasoningEffortMap } from "../transports/openai-reasoning-compat.js";
 import {
   isOpenAICompletionsThinkingEnabled,
-  parseOpenAICompletionsUsage,
   readOpenAICompletionsContentDeltas,
 } from "../transports/openai-transport-shared.js";
 import { transportAbortError } from "../transports/transport-stream-shared.js";
@@ -144,12 +147,13 @@ export const streamOpenAICompletions: StreamFunction<
   const stream = new AssistantMessageEventStream();
 
   void (async () => {
-    const output: AssistantMessage = {
+    const output: AssistantMessage & OpenAICompletionsUsageTarget = {
       role: "assistant",
       content: [],
       api: model.api,
       provider: model.provider,
       model: model.id,
+      openclawUsageProvenance: "unmeasured",
       usage: {
         input: 0,
         output: 0,
@@ -406,7 +410,7 @@ export const streamOpenAICompletions: StreamFunction<
           output.responseModel ||= chunk.model;
         }
         if (chunk.usage) {
-          output.usage = parseOpenAICompletionsUsage(chunk.usage, model, {
+          applyOpenAICompletionsUsage(output, chunk.usage, model, {
             includeReasoningTokens: false,
           });
         }
@@ -419,10 +423,10 @@ export const streamOpenAICompletions: StreamFunction<
         // Fallback: some providers (e.g., Moonshot) return usage
         // in choice.usage instead of the standard chunk.usage
         const choiceUsage = (
-          choice as typeof choice & { usage?: Parameters<typeof parseOpenAICompletionsUsage>[0] }
+          choice as typeof choice & { usage?: Parameters<typeof applyOpenAICompletionsUsage>[1] }
         ).usage;
         if (!chunk.usage && choiceUsage) {
-          output.usage = parseOpenAICompletionsUsage(choiceUsage, model, {
+          applyOpenAICompletionsUsage(output, choiceUsage, model, {
             includeReasoningTokens: false,
           });
         }
