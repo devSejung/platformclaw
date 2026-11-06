@@ -506,7 +506,9 @@ describe("gateway server cron", () => {
       cronEnabled: false,
     });
     const cronEvents = createCronEventCollector();
-    const cronState = await createDirectCronState({ broadcast: cronEvents.broadcast });
+    const cronState = await createDirectCronState({
+      broadcast: (event, payload) => cronEvents.broadcast(event, payload),
+    });
     const sessionKey = "agent:main:main";
     const client: GatewayClient = {
       connect: {} as GatewayClient["connect"],

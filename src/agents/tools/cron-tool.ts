@@ -41,6 +41,7 @@ import {
   stripExistingContext,
 } from "./cron-tool-context.js";
 import { capCronJobToolsAllowOnCreate } from "./cron-tool-creator-cap.js";
+import { formatCronTerminalPresentation } from "./cron-tool-presentation.js";
 import {
   assertCronPacingInput,
   createCronToolSchema,
@@ -217,46 +218,6 @@ function filterCronListResultToJobId(result: unknown, jobId: string): unknown {
 
 function filterCronStatusResultForSelfScope(result: unknown): unknown {
   return { enabled: isRecord(result) && result.enabled === true };
-}
-
-function formatCronTerminalPresentation(
-  params: unknown,
-  result: unknown,
-): { text: string } | undefined {
-  if (!isRecord(params) || !isRecord(result) || !isRecord(result.details)) {
-    return undefined;
-  }
-  switch (params.action) {
-    case "status": {
-      const enabled = result.details.enabled === true ? "yes" : "no";
-      return { text: `Automations scheduler status.\nEnabled: ${enabled}` };
-    }
-    case "list": {
-      const total =
-        typeof result.details.total === "number" &&
-        Number.isFinite(result.details.total) &&
-        result.details.total >= 0
-          ? Math.floor(result.details.total)
-          : undefined;
-      const count =
-        total ?? (Array.isArray(result.details.jobs) ? result.details.jobs.length : undefined);
-      return count === undefined
-        ? { text: "Automations listed." }
-        : { text: `Automations listed.\nCount: ${count}` };
-    }
-    case "get":
-      return { text: "Automation loaded." };
-    case "runs": {
-      const entries = Array.isArray(result.details.entries)
-        ? result.details.entries.length
-        : undefined;
-      return entries === undefined
-        ? { text: "Automation run history loaded." }
-        : { text: `Automation run history loaded.\nCount: ${entries}` };
-    }
-    default:
-      return undefined;
-  }
 }
 
 function cronListResultHasJob(result: unknown, jobId: string): boolean {
@@ -490,8 +451,8 @@ Job wakeMode (main jobs): "now"(default)|"next-heartbeat". Restricted automation
             }
             // Detached personal jobs must not recover delivery or scheduling tools by name.
             const creatorToolAllowlist = personalSessionKey
-              ? (opts?.creatorToolAllowlist ?? []).filter((tool) => {
-                  const name = typeof tool === "string" ? tool : tool.name;
+              ? (opts?.creatorToolAllowlist ?? []).filter((entry) => {
+                  const name = typeof entry === "string" ? entry : entry.name;
                   return name !== AUTOMATIONS_TOOL_NAME && name !== "message";
                 })
               : opts?.creatorToolAllowlist;
