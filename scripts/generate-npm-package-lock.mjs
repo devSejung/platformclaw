@@ -315,15 +315,17 @@ function resolvePnpmLockOverridePlan(lockfile) {
     ) {
       continue;
     }
-    // Hosted-source snapshots use a URL key, while npm matches the package's
-    // published semantic version when applying a scoped child policy.
-    const parentVersion = exactVersionFromOverrideSpec(
-      lockfile.packages?.[`${parent.name}@${parent.version}`]?.version ?? parent.version,
-    );
+    const parentPackage = lockfile.packages?.[`${parent.name}@${parent.version}`];
+    const parentVersion = exactVersionFromOverrideSpec(parentPackage?.version ?? parent.version);
     if (!parentVersion) {
       continue;
     }
-    const parentSelector = `${parent.name}@${parentVersion}`;
+    // npm cannot match a versioned override to a Git commit edge. A name-only
+    // selector preserves the child pins when the parent has one locked source.
+    const parentSelector =
+      parentPackage?.resolution?.gitHosted === true && versionsByName.get(parent.name)?.size === 1
+        ? parent.name
+        : `${parent.name}@${parentVersion}`;
     for (const [dependencyName, dependencySpec] of Object.entries(dependencies)) {
       if (!multiVersionPackageNames.has(dependencyName)) {
         continue;
