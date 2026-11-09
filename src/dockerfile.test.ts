@@ -178,25 +178,27 @@ describe("Dockerfile", () => {
     expect(dockerfile).toContain("apt-get install -y --no-install-recommends xvfb");
   });
 
-  it("uses the Docker target platform for pnpm install and prune", async () => {
-    const dockerfile = await readFile(dockerfilePath, "utf8");
-    const installIndex = dockerfile.indexOf("pnpm install --frozen-lockfile \\");
-    const storeSeedIndex = dockerfile.indexOf(
-      "node scripts/list-prod-store-packages.mjs | xargs -r pnpm store add",
-    );
-    const pruneIndex = dockerfile.indexOf("CI=true pnpm prune --prod \\");
-
-    expect(installIndex).toBeGreaterThan(-1);
-    expect(storeSeedIndex).toBeGreaterThan(installIndex);
-    expect(storeSeedIndex).toBeLessThan(pruneIndex);
-    expect(pruneIndex).toBeGreaterThan(-1);
-    expect(dockerfile).toContain("--config.offline=true");
-    expect(dockerfile.split("--config.supportedArchitectures.os=linux").length - 1).toBe(2);
-    expect(
-      dockerfile.split("--config.supportedArchitectures.cpu=\"$(node -p 'process.arch')\"").length -
-        1,
-    ).toBe(2);
-    expect(dockerfile.split("--config.supportedArchitectures.libc=glibc").length - 1).toBe(2);
+  it("uses the Docker target platform for pnpm install, fetch, and offline prune", async () => {
+    const dockerfile = collapseDockerContinuations(await readFile(dockerfilePath, "utf8"));
+    let previousIndex = -1;
+    for (const command of [
+      "pnpm install --frozen-lockfile",
+      "CI=true pnpm fetch --prod",
+      "CI=true pnpm prune --prod",
+    ]) {
+      const index = dockerfile.indexOf(command);
+      expect(index, command).toBeGreaterThan(previousIndex);
+      const invocation = dockerfile.slice(index).split(/\n| && /u)[0];
+      expect(invocation, command).toContain("--config.supportedArchitectures.os=linux");
+      expect(invocation, command).toContain(
+        "--config.supportedArchitectures.cpu=\"$(node -p 'process.arch')\"",
+      );
+      expect(invocation, command).toContain("--config.supportedArchitectures.libc=glibc");
+      if (command === "CI=true pnpm prune --prod") {
+        expect(invocation).toContain("--config.offline=true");
+      }
+      previousIndex = index;
+    }
   });
 
   it("verifies matrix-sdk-crypto native addons without hardcoded pnpm virtual-store paths", async () => {
