@@ -9,6 +9,7 @@ const runtimeRoot = path.resolve("docker/platformclaw-runtime");
 const bash = process.platform === "win32" ? "C:/Program Files/Git/bin/bash.exe" : "bash";
 const hasCompose = spawnSync("docker", ["compose", "version"], { stdio: "ignore" }).status === 0;
 const heapKey = "PLATFORMCLAW_GATEWAY_MAX_OLD_SPACE_SIZE";
+const memLimitKey = "PLATFORMCLAW_GATEWAY_MEM_LIMIT";
 
 function shellPath(value: string): string {
   return process.platform === "win32"
@@ -233,7 +234,7 @@ compose=(record_compose)
     }
   }, 30_000);
 
-  it("preserves a custom setting through the updater's image-pair update and rollback", () => {
+  it("preserves custom gateway limits through image-pair update and rollback", () => {
     const root = tempDirs.make("platformclaw-heap-update-");
     const functions = extractDeployFunctions("read_env_value", "set_image_pair");
     const result = runShell(
@@ -241,10 +242,11 @@ compose=(record_compose)
 deploy_root="$PLATFORMCLAW_TEST_ROOT"
 env_file="$deploy_root/deployment.env"
 for heap in 4096 8192 12288; do
-  printf '%s\\n' 'PLATFORMCLAW_IMAGE=platformclaw:old' 'PLATFORMCLAW_SANDBOX_IMAGE=platformclaw-sandbox:old' "${heapKey}=$heap" >"$env_file"
+  printf '%s\\n' 'PLATFORMCLAW_IMAGE=platformclaw:old' 'PLATFORMCLAW_SANDBOX_IMAGE=platformclaw-sandbox:old' "${heapKey}=$heap" '${memLimitKey}=20g' >"$env_file"
   cp "$env_file" "$env_file.previous"
   set_image_pair platformclaw:new platformclaw-sandbox:new
   [[ "$(read_env_value ${heapKey})" == "$heap" ]]
+  [[ "$(read_env_value ${memLimitKey})" == 20g ]]
   [[ "$(read_env_value PLATFORMCLAW_IMAGE)" == platformclaw:new ]]
   set_image_pair "$(read_env_value PLATFORMCLAW_IMAGE "$env_file.previous")" "$(read_env_value PLATFORMCLAW_SANDBOX_IMAGE "$env_file.previous")"
   cmp "$env_file" "$env_file.previous"
@@ -254,9 +256,15 @@ done`,
     expect(result.status, result.stderr || result.error?.message).toBe(0);
   });
 
-  it.skipIf(!hasCompose).each([undefined, "", "4096", "8192", "12288"])(
-    "uses the deployment env value %j only for the gateway through Compose",
-    (heap) => {
+  it.skipIf(!hasCompose).each([
+    { heap: undefined, memLimit: undefined, limitGiB: 16 },
+    { heap: "", memLimit: "", limitGiB: 16 },
+    { heap: "4096", memLimit: "12g", limitGiB: 12 },
+    { heap: "8192", memLimit: "16g", limitGiB: 16 },
+    { heap: "12288", memLimit: "20g", limitGiB: 20 },
+  ])(
+    "renders gateway-only limits with heap $heap and memory $memLimit",
+    ({ heap, memLimit, limitGiB }) => {
       const root = tempDirs.make("platformclaw-heap-compose-");
       const envFile = path.join(root, "deployment.env");
       const secret = path.join(root, "synthetic-secret");
@@ -279,6 +287,7 @@ done`,
           "SSH_CREDENTIAL_MASTER_KEY_SECRET_FILE",
         ].map((key) => `PLATFORMCLAW_${key}=${secret.replaceAll("\\", "/")}`),
         ...(heap === undefined ? [] : [`${heapKey}=${heap}`]),
+        ...(memLimit === undefined ? [] : [`${memLimitKey}=${memLimit}`]),
       ];
       writeFileSync(envFile, `${values.join("\n")}\n`);
       const result = runShell(
@@ -293,6 +302,7 @@ exec bash "$PLATFORMCLAW_TEST_COMPOSE" config --format json
           PLATFORMCLAW_DEPLOY_ROOT: shellPath(root),
           PLATFORMCLAW_ENV_FILE: shellPath(envFile),
           [heapKey]: "16384",
+          [memLimitKey]: "24g",
           PLATFORMCLAW_GUIDE_VIDEO_URL: "",
           PLATFORMCLAW_GUIDE_VIDEO_S3_ENDPOINT: "",
           PLATFORMCLAW_GUIDE_VIDEO_S3_BUCKET: "",
@@ -306,16 +316,23 @@ exec bash "$PLATFORMCLAW_TEST_COMPOSE" config --format json
       );
       expect(result.status, result.stderr || result.error?.message).toBe(0);
       const config = JSON.parse(result.stdout) as {
-        services: Record<string, { environment?: Record<string, string> }>;
+        services: Record<
+          string,
+          { environment?: Record<string, string>; mem_limit?: number; memswap_limit?: number }
+        >;
       };
-      const gateway = config.services["openclaw-gateway"]!.environment!;
-      expect(gateway[heapKey]).toBe(heap || "8192");
+      const gateway = config.services["openclaw-gateway"]!;
+      expect(gateway.environment?.[heapKey]).toBe(heap || "8192");
+      expect(Number(gateway.mem_limit)).toBe(limitGiB * 1024 ** 3);
+      expect(gateway.memswap_limit).toBe(gateway.mem_limit);
       for (const [name, service] of Object.entries(config.services)) {
         if (name !== "openclaw-gateway") {
           expect(service.environment?.[heapKey], name).toBeUndefined();
+          expect(service.mem_limit, name).toBeUndefined();
+          expect(service.memswap_limit, name).toBeUndefined();
         }
       }
-      const launched = runLauncher(gateway[heapKey]);
+      const launched = runLauncher(gateway.environment?.[heapKey]);
       expect(launched.status, launched.stderr).toBe(0);
       const probe = JSON.parse(launched.stdout) as GatewayProbe;
       expect(probe.options).toBe(`--max-old-space-size=${heap || "8192"}`);
