@@ -4,6 +4,7 @@ import path from "node:path";
 import JSZip from "jszip";
 import { afterEach, describe, expect, it, vi } from "vitest";
 import type { OpenClawPluginApi, OpenClawPluginToolFactory } from "../../../src/plugins/types.js";
+import { computeSkillPromptVersion } from "../../../src/skills/loading/skill-version.js";
 import { resolveRelativeBundledPluginPublicModuleId } from "../../../src/test-utils/bundled-plugin-public-surface.js";
 import { readBrowserJsonBody } from "./browser-http-shared.js";
 import { KnoxRoutingService } from "./knox-routing-service.js";
@@ -71,10 +72,9 @@ async function setup(room = true, manager?: "admin" | "owner") {
     { id: 1, version: "1.0.0", status: "PUBLISHED", downloadAvailable: true },
   ]);
   const zip = new JSZip();
-  zip.file(
-    "SKILL.md",
-    "---\nname: demo-skill\ndescription: Synthetic helper\nversion: 1.0.0\n---\nInstructions",
-  );
+  const markdown =
+    "---\nname: demo-skill\ndescription: Synthetic helper\nversion: 1.0.0\n---\nInstructions";
+  zip.file("SKILL.md", markdown);
   fixture.adapterMocks.download.mockResolvedValue(
     await zip.generateAsync({ type: "nodebuffer", compression: "DEFLATE" }),
   );
@@ -83,14 +83,14 @@ async function setup(room = true, manager?: "admin" | "owner") {
     source: "openclaw-workspace",
     baseDir: "/workspace/skills/demo-skill",
     version: "1.0.0",
-    revision: "sha256:1111111111111111",
+    revision: computeSkillPromptVersion(markdown),
     eligible: true,
     disabled: false,
     modelVisible: true,
     missing: { bins: [], anyBins: [], env: [], config: [], os: [] },
   };
   let installed = false;
-  fixture.adminRpcCall.mockImplementation(async (method: string) => {
+  fixture.adminRpcCall.mockImplementation(async (method, params) => {
     if (method === "skills.status") {
       return { skills: installed ? [ready] : [] };
     }
@@ -99,7 +99,7 @@ async function setup(room = true, manager?: "admin" | "owner") {
     }
     if (method === "skills.install") {
       installed = true;
-      return { ok: true, slug: "demo-skill" };
+      return { ok: true, slug: "demo-skill", sha256: params.sha256 };
     }
     if (method === "skills.uninstall") {
       installed = false;

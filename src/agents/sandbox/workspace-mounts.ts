@@ -231,6 +231,7 @@ export function resolveReadOnlyWorkspaceSkillMounts(params: {
   workdir: string;
   workspaceAccess: SandboxWorkspaceAccess;
   readOnlySkillMounts?: readonly ReadOnlyWorkspaceSkillMount[];
+  previousReadOnlySkillBinds?: ReadonlySet<string>;
 }): ReadOnlyWorkspaceSkillMount[] {
   // RW workspaces mount the project as writable, but skill sources remain read-only so agent
   // instructions are visible without letting sandbox commands mutate them.
@@ -265,30 +266,38 @@ export function resolveReadOnlyWorkspaceSkillMounts(params: {
         ]
       : [];
 
-  const defaults = mounts
-    .filter((mount) =>
-      isExistingWorkspaceSkillMountSource({
-        rootDir: mount.rootDir,
-        hostPath: mount.hostPath,
-      }),
-    )
-    .map(({ hostPath, containerPath, rootDir, workspaceSource }) => {
-      const canonicalHost = resolveSandboxHostPathViaExistingAncestor(hostPath);
-      // Docker resolves workspace source aliases in the mounted tree. Use that
-      // same destination for its hash, nested masks, and host filesystem reads.
-      const canonicalTarget = workspaceSource
-        ? containerJoin(
-            params.workdir,
-            ...path
-              .relative(
-                resolveSandboxHostPathViaExistingAncestor(path.resolve(rootDir)),
-                canonicalHost,
-              )
-              .split(path.sep),
-          )
-        : containerPath;
-      return { hostPath: canonicalHost, containerPath: canonicalTarget };
-    });
+  const defaults = mounts.flatMap(({ hostPath, containerPath, rootDir, workspaceSource }) => {
+    if (
+      !params.previousReadOnlySkillBinds &&
+      !isExistingWorkspaceSkillMountSource({ rootDir, hostPath })
+    ) {
+      return [];
+    }
+    const canonicalHost = resolveSandboxHostPathViaExistingAncestor(hostPath);
+    // Docker resolves workspace source aliases in the mounted tree. Use that
+    // same destination for its hash, nested masks, and host filesystem reads.
+    const canonicalTarget = workspaceSource
+      ? containerJoin(
+          params.workdir,
+          ...path
+            .relative(
+              resolveSandboxHostPathViaExistingAncestor(path.resolve(rootDir)),
+              canonicalHost,
+            )
+            .split(path.sep),
+        )
+      : containerPath;
+    const mount = { hostPath: canonicalHost, containerPath: canonicalTarget };
+    if (
+      params.previousReadOnlySkillBinds &&
+      !params.previousReadOnlySkillBinds.has(
+        formatManagedWorkspaceBind({ ...mount, readOnly: true }),
+      )
+    ) {
+      return [];
+    }
+    return [mount];
+  });
   // One authoritative plan is shared by Docker and the filesystem bridge.
   const byTarget = new Map(
     defaults.map((mount) => [normalizeMountContainerPath(mount.containerPath), mount]),
@@ -297,6 +306,46 @@ export function resolveReadOnlyWorkspaceSkillMounts(params: {
     byTarget.set(normalizeMountContainerPath(mount.containerPath), mount);
   }
   return [...byTarget.values()];
+}
+
+/** Reconstructs the managed skill bind order for an existing writable sandbox. */
+export function resolvePreviousReadOnlyWorkspaceSkillMounts(
+  params: Parameters<typeof resolveReadOnlyWorkspaceSkillMounts>[0],
+  binds: readonly string[],
+): ReadOnlyWorkspaceSkillMount[] {
+  const materialized =
+    params.skillsWorkspaceDir ??
+    resolveMaterializedSandboxSkillsWorkspaceDir(params.agentWorkspaceDir);
+  const maskSource = path.join(materialized, ".excluded-skill-empty");
+  const masks = binds.flatMap((bind) => {
+    const parsed = splitSandboxBindSpec(bind);
+    if (!parsed || parsed.host !== maskSource || parsed.options !== "ro,z") {
+      return [];
+    }
+    const target = normalizeMountContainerPath(parsed.container);
+    // A skill root may resolve to an alias within the workspace. The reserved
+    // mask source and previous full hash prove its role without spelling the root.
+    return target !== normalizeMountContainerPath(params.workdir) &&
+      isPathInsideContainerPath(params.workdir, target)
+      ? [target]
+      : [];
+  });
+  const previousReadOnlySkillBinds = new Set(binds);
+  const canonicalSources = (params.readOnlySkillMounts ?? []).filter(
+    (mount) =>
+      mount.hostPath !== maskSource &&
+      previousReadOnlySkillBinds.has(formatManagedWorkspaceBind({ ...mount, readOnly: true })),
+  );
+  // Docker's CLI assembles HostConfig.Binds from a map. Use the same order
+  // as materialization and creation, not the order returned by inspect.
+  return resolveReadOnlyWorkspaceSkillMounts({
+    ...params,
+    previousReadOnlySkillBinds,
+    readOnlySkillMounts: [
+      ...masks.toSorted().map((containerPath) => ({ hostPath: maskSource, containerPath })),
+      ...canonicalSources,
+    ],
+  });
 }
 
 /** Returns stable mount state for sandbox config hashes. */

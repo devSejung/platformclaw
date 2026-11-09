@@ -242,6 +242,7 @@ export type NoVisibleReplyReason =
   | "filtered-result"
   | "empty-result"
   | "question-unavailable"
+  | "sandbox-skill-refresh-busy"
   | "unknown";
 
 /** WeakMap-backed metadata attached to payload objects without changing wire shape. */

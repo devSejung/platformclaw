@@ -31,6 +31,7 @@ const REPLY_FAILURE_TEXT: Record<KnoxReplyFailureReason, string> = {
   cancelled: "완료 전에 작업이 취소되었습니다. 계속하려면 남은 작업을 다시 요청해 주세요.",
   "runtime-error":
     "작업 실행 중 오류가 발생했습니다. 운영자에게 아래 확인 코드로 실행 기록 확인을 요청해 주세요.",
+  "sandbox-skill-refresh-busy": "스킬 설정을 반영 중입니다. 잠시 후 다시 시도해 주세요.",
   "unrenderable-result":
     "응답에 본문·선택지·첨부 설명이 없어 Knox 메시지로 변환하지 못했습니다. 운영자에게 응답 형식 확인을 요청해 주세요.",
 };

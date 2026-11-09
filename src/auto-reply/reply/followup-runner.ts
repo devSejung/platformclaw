@@ -19,6 +19,7 @@ import {
   type FollowupRun,
 } from "./queue.js";
 import type { ReplyOperation } from "./reply-run-registry.js";
+import { runWithReplyOperationLifecycleAdmission } from "./reply-turn-admission.js";
 
 type FollowupDrainDisposition =
   | { kind: "consumed" }
@@ -88,33 +89,35 @@ export function createFollowupRunner(
       admittedRunId = turn.runId;
       operation = turn.operation;
       queuedFollowupAdmitted = true;
-      const execution = await executeFollowupTurn({
-        turn,
-        defaults,
-        onExecutionStarted: () => {
-          executionStarted = true;
-        },
-        onToolResult: async (payload, identity) => {
-          await deliverFollowupDecision({
-            decision: { kind: "deliver", payloads: [payload] },
-            turn,
-            defaults,
-            runId: identity.runId,
-            runFollowup,
-            kind: "tool",
-          });
-        },
-        onCompactionNoticePayload: async (payload, identity) => {
-          await deliverFollowupDecision({
-            decision: { kind: "deliver", payloads: [payload] },
-            turn,
-            defaults,
-            runId: identity.runId,
-            runFollowup,
-            kind: "block",
-          });
-        },
-      });
+      const execute = () =>
+        executeFollowupTurn({
+          turn,
+          defaults,
+          onExecutionStarted: () => {
+            executionStarted = true;
+          },
+          onToolResult: async (payload, identity) => {
+            await deliverFollowupDecision({
+              decision: { kind: "deliver", payloads: [payload] },
+              turn,
+              defaults,
+              runId: identity.runId,
+              runFollowup,
+              kind: "tool",
+            });
+          },
+          onCompactionNoticePayload: async (payload, identity) => {
+            await deliverFollowupDecision({
+              decision: { kind: "deliver", payloads: [payload] },
+              turn,
+              defaults,
+              runId: identity.runId,
+              runFollowup,
+              kind: "block",
+            });
+          },
+        });
+      const execution = await runWithReplyOperationLifecycleAdmission(turn.operation, execute);
       try {
         await execution.progress.drain();
       } catch (error) {

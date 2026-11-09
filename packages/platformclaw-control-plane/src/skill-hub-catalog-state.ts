@@ -68,6 +68,8 @@ export type SkillHubCatalogInstallation = {
   state: "pending" | "completed";
 };
 
+export type SkillHubCatalogMigration = "sharing-v1" | "legacy-room-installations-v1";
+
 type CatalogMutation = {
   skillId: string;
   actorUserId: string;
@@ -109,6 +111,12 @@ export interface SkillHubCatalogStore {
     > & { installedRevision?: string; now: number },
   ): Promise<void>;
   listInstallations(agentId: string, targetId: string): Promise<SkillHubCatalogInstallation[]>;
+  listPendingLegacyRoomInstallations(): Promise<SkillHubCatalogInstallation[]>;
+  recoverLegacyRoomInstallation(
+    origin: SkillHubCatalogInstallation,
+    installedRevision: string,
+    expectedCatalogRevision: number,
+  ): Promise<boolean>;
   roomExcludedSlugs(agentId: string): Promise<string[]>;
   removeInstallation(params: {
     agentId: string;
@@ -220,6 +228,6 @@ export interface SkillHubCatalogStore {
     now: number;
   }): Promise<SkillHubCatalogEntry>;
   listLegacyCoordinates(): Promise<Array<{ namespace: string; slug: string }>>;
-  migrationComplete(): Promise<boolean>;
-  finishMigration(now: number): Promise<void>;
+  migrationComplete(id?: SkillHubCatalogMigration): Promise<boolean>;
+  finishMigration(now: number, id?: SkillHubCatalogMigration): Promise<void>;
 }

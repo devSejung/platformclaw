@@ -50,6 +50,49 @@ async function fixture() {
 }
 
 describe("explicit skill source exclusions", () => {
+  it("exposes an admitted workspace skill while keeping other exclusions masked", async () => {
+    const f = await fixture();
+    const recoveredFile = path.join(f.agentWorkspaceDir, "skills", "recovered", "SKILL.md");
+    const recoveredContent = "---\nname: recovered\ndescription: Recovered skill\n---\nverified";
+    await fs.mkdir(path.dirname(recoveredFile), { recursive: true });
+    await fs.writeFile(recoveredFile, recoveredContent);
+    const params = {
+      ...f,
+      workspaceDir: f.agentWorkspaceDir,
+      workspaceAccess: "rw" as const,
+      workdir: "/workspace",
+    };
+    const bridgeForExclusions = async (excludedSkillFiles: string[]) => {
+      const { mounts } = await prepareExcludedWorkspaceSkillMounts({
+        ...params,
+        excludedSkillFiles,
+      });
+      const sandbox = createSandboxTestContext({
+        overrides: {
+          workspaceDir: params.workspaceDir,
+          agentWorkspaceDir: params.agentWorkspaceDir,
+          readOnlySkillMounts: mounts,
+        },
+      });
+      return { mounts, bridge: createSandboxFsBridge({ sandbox }) };
+    };
+
+    const recoveredPath = "/workspace/skills/recovered/SKILL.md";
+    const before = await bridgeForExclusions([f.excludedFile, recoveredFile]);
+    await expect(before.bridge.readFile({ filePath: recoveredPath })).rejects.toThrow(/ENOENT/i);
+
+    const after = await bridgeForExclusions([f.excludedFile]);
+    expect(after.mounts.map((mount) => mount.containerPath)).toEqual([
+      "/workspace/skills/physical-folder",
+    ]);
+    await expect(after.bridge.readFile({ filePath: recoveredPath })).resolves.toEqual(
+      Buffer.from(recoveredContent),
+    );
+    await expect(
+      after.bridge.readFile({ filePath: "/workspace/skills/physical-folder/SKILL.md" }),
+    ).rejects.toThrow(/ENOENT/i);
+  });
+
   it.each(["rw", "ro", "none"] as const)(
     "masks only the excluded physical directory for %s access",
     async (workspaceAccess) => {
@@ -119,8 +162,8 @@ describe("explicit skill source exclusions", () => {
     expect(
       mounts
         .filter((mount) => mount.source === "protectedSkill")
-        .map((mount) => [mount.hostRoot, mount.containerRoot]),
-    ).toEqual(canonical.map((mount) => [mount.hostPath, mount.containerPath]));
+        .map((mount) => [path.normalize(mount.hostRoot), mount.containerRoot]),
+    ).toEqual(canonical.map((mount) => [path.normalize(mount.hostPath), mount.containerPath]));
     const bridge = createSandboxFsBridge({ sandbox });
     for (const filePath of [
       "/workspace/skills/physical-folder/SKILL.md",
@@ -134,7 +177,7 @@ describe("explicit skill source exclusions", () => {
         defaultContainerRoot: "/workspace",
         mounts,
       });
-      expect(resolved.hostPath).toBe(path.join(masks[0]!.hostPath, "SKILL.md"));
+      expect(path.normalize(resolved.hostPath)).toBe(path.join(masks[0]!.hostPath, "SKILL.md"));
       await expect(bridge.readFile({ filePath })).rejects.toThrow(/ENOENT|no such file/i);
     }
     for (const filePath of ["/workspace/hub-alias/SKILL.md", path.join(alias, "SKILL.md")]) {
@@ -189,7 +232,11 @@ describe("explicit skill source exclusions", () => {
       excludedSkillFiles: [],
       excludedSourceDirectories: [path.dirname(f.excludedFile)],
     });
-    expect(result).toEqual({
+    expect({
+      ...result,
+      excludedSourceDirectories: result.excludedSourceDirectories.map(path.normalize),
+      missingSourceDirectories: result.missingSourceDirectories.map(path.normalize),
+    }).toEqual({
       mounts: [],
       excludedSourceDirectories: [path.dirname(f.excludedFile)],
       missingSourceDirectories: [path.dirname(f.excludedFile)],
@@ -296,7 +343,13 @@ describe("explicit skill source exclusions", () => {
         readOnlySkillMounts: prepared.mounts,
       },
     });
-    expect(buildSandboxFsMounts(sandbox)).toEqual(
+    expect(
+      buildSandboxFsMounts(sandbox).map(({ hostRoot, containerRoot, writable }) => ({
+        hostRoot: path.normalize(hostRoot),
+        containerRoot,
+        writable,
+      })),
+    ).toEqual(
       expect.arrayContaining([
         expect.objectContaining({
           hostRoot: path.join(realAgents, "skills"),
@@ -364,7 +417,9 @@ describe("explicit skill source exclusions", () => {
     const initial = await prepareRunSkillContext(params);
     await fs.unlink(alias);
     await link(second);
-    expect(materialized.excludedSourceDirectories).toEqual([path.join(first, "physical-folder")]);
+    expect(materialized.excludedSourceDirectories.map(path.normalize)).toEqual([
+      path.join(first, "physical-folder"),
+    ]);
     expect(materialized.mounts[0]?.containerPath).toBe("/workspace/first-skills/physical-folder");
     await expect(prepareRunSkillContext(params)).rejects.toMatchObject({
       name: "SkillContextPolicyError",

@@ -570,6 +570,11 @@ Use the phase-specific hooks for new plugins:
   run check rejects permissions that need a mask missing from the prepared view.
   Workspace masks are confined to the executing Agent's `skills/` and
   `.agents/skills/` source roots. They do not delete or rewrite installed content.
+  A managed policy owner can return `reconcileSandboxSkillMounts: true` to allow
+  a restricted Docker dispatch to refresh an idle, writable agent or session
+  sandbox. Docker verifies that only the managed skill mounts changed before
+  replacing the container. Competing work keeps its sandbox and the new dispatch
+  returns a retryable error.
   Return `{ excludedPaths: [...] }` to exclude exact candidate paths from this
   run's skill prompt, environment requirements, Code Mode readers, and native
   CLI skill materialization. Multiple handlers' exclusions are combined; a

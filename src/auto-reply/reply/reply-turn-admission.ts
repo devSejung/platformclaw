@@ -1,4 +1,7 @@
-import { beginAgentWorkAdmission } from "../../agents/agent-work-admission.js";
+import {
+  beginAgentWorkAdmission,
+  runWithAgentWorkAdmissions,
+} from "../../agents/agent-work-admission.js";
 import { scheduleMainSessionRecoveryPendingTarget } from "../../agents/main-session-recovery-owner-release.js";
 import { isMainRestartRecoveryCandidate } from "../../agents/main-session-recovery-state.js";
 import {
@@ -64,6 +67,10 @@ class QueuedFollowupLifecycleInvalidatedError extends Error {}
 
 const log = createSubsystemLogger("auto-reply/reply-turn-admission");
 const lifecycleAdmissionByOperation = new WeakMap<ReplyOperation, SessionWorkAdmissionLease>();
+const ownerAdmissionsByOperation = new WeakMap<
+  ReplyOperation,
+  Set<ReturnType<typeof beginAgentWorkAdmission>>
+>();
 
 async function releaseReplyRecoveryOwner(
   lease: MainSessionRecoveryOwnerLease | undefined,
@@ -82,7 +89,9 @@ export async function runWithReplyOperationLifecycleAdmission<T>(
   run: () => Promise<T>,
 ): Promise<T> {
   const admission = lifecycleAdmissionByOperation.get(operation);
-  return admission ? await admission.run(run) : await run();
+  return await runWithAgentWorkAdmissions(ownerAdmissionsByOperation.get(operation) ?? [], () =>
+    admission ? admission.run(run) : run(),
+  );
 }
 
 function rejectLifecycleInvalidatedWork(params: {
@@ -178,7 +187,16 @@ export async function admitReplyTurn(
       // The reply operation owns final attachment delivery too. Keep its owner
       // claim across admission waits and until the publication owner clears it.
       retainReplyOperationUntilComplete(result.operation);
-      runAfterReplyOperationClear(result.operation, releaseOwner);
+      const owners = ownerAdmissionsByOperation.get(result.operation) ?? new Set();
+      owners.add(releaseOwner);
+      ownerAdmissionsByOperation.set(result.operation, owners);
+      runAfterReplyOperationClear(result.operation, () => {
+        owners.delete(releaseOwner);
+        if (!owners.size) {
+          ownerAdmissionsByOperation.delete(result.operation);
+        }
+        releaseOwner();
+      });
       ownerTransferred = true;
     } else if (releaseOwner && result.status === "skipped" && result.lifecycleAdmission) {
       void result.lifecycleAdmission.released.then(releaseOwner);

@@ -93,17 +93,80 @@ async function fixture(enabled = true) {
     skillId: f.entry!.id,
     version: "1.0.0",
     archiveSha256: "a".repeat(64),
-    installedRevision: "sha256:1111111111111111",
     installedAt: 10,
   };
+  const recordPendingOrigin = () =>
+    f.store.skillHubCatalog.recordInstallation({ ...origin, state: "pending" });
   const recordOrigin = async () => {
-    await f.store.skillHubCatalog.recordInstallation({ ...origin, state: "pending" });
-    await f.store.skillHubCatalog.completeInstallation({ ...origin, now: 11 });
+    await recordPendingOrigin();
+    await f.store.skillHubCatalog.completeInstallation({
+      ...origin,
+      installedRevision: "sha256:1111111111111111",
+      now: 11,
+    });
   };
-  return { ...f, room, request, readJsonBody, candidate, recordOrigin };
+  return { ...f, room, request, readJsonBody, candidate, recordOrigin, recordPendingOrigin };
 }
 
 describe("Skill Hub internal HTTP boundaries", () => {
+  it("explains incomplete room installations without exposing undiscovered skill identities", async () => {
+    const f = await fixture();
+    await f.recordPendingOrigin();
+    const roomInstallKey = `${f.room.agentId}/platform-server`;
+    f.installed.set(roomInstallKey, {
+      slug: "demo-skill",
+      version: "1.0.0",
+      revision: "sha256:1111111111111111",
+    });
+    const installed = (locale: "en" | "ko", room = true) =>
+      f.request(
+        {
+          accountId: f.actor.user.accountId,
+          args: "installed",
+          locale,
+          context: {
+            accountId: "default",
+            conversationType: room ? "room" : "dm",
+            conversationId: room ? "room-one" : "42",
+            agentId: room ? f.room.agentId : f.actor.agentId,
+            sessionKey: `agent:${room ? f.room.agentId : f.actor.agentId}:main`,
+          },
+        },
+        { path: commandPath },
+      );
+    expect(await installed("ko")).toMatchObject({
+      status: 200,
+      body: { text: "설치된 스킬\ndemo-skill · 설치 기록 미완료로 비활성" },
+    });
+    expect(await installed("en")).toMatchObject({
+      status: 200,
+      body: {
+        text: "Installed skills\ndemo-skill · Inactive because the installation record is incomplete",
+      },
+    });
+    expect(await f.request({ agentId: f.room.agentId, candidates: [f.candidate] })).toMatchObject({
+      status: 200,
+      body: {
+        excludedPaths: [f.candidate.filePath],
+        excludedSourceDirectories: [path.dirname(f.candidate.filePath)],
+      },
+    });
+    f.installed.set(`${f.actor.agentId}/platform-server`, {
+      slug: "demo-skill",
+      version: "1.0.0",
+      revision: "sha256:1111111111111111",
+    });
+    expect(await installed("ko", false)).toMatchObject({
+      status: 200,
+      body: { text: "설치된 스킬\ndemo-skill · 1.0.0" },
+    });
+    f.installed.delete(roomInstallKey);
+    expect(await installed("ko")).toMatchObject({
+      status: 200,
+      body: { text: "설치된 스킬\n설치 기록이 미완료인 비활성 스킬 1개" },
+    });
+  });
+
   it.each(["en", "ko"] as const)(
     "preserves a linked-account 401 and its diagnostic in %s",
     async (locale) => {
@@ -162,6 +225,15 @@ describe("Skill Hub internal HTTP boundaries", () => {
     );
     expect(status.status).toBe(200);
     expect(status.body.items).toEqual([expect.not.objectContaining({ hubSkillId: f.entry!.id })]);
+    expect(
+      await f.request(
+        { accountId: f.actor.user.accountId, args: "installed", locale: "ko", context },
+        { path: commandPath },
+      ),
+    ).toMatchObject({
+      status: 200,
+      body: { text: "설치된 스킬\ndemo-skill · 공유방 스킬 정책으로 비활성" },
+    });
     expect(await f.request({ agentId: f.room.agentId, candidates: [f.candidate] })).toMatchObject({
       status: 200,
       body: {

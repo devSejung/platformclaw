@@ -3,6 +3,7 @@ import { mkdir, readFile, writeFile } from "node:fs/promises";
 import path from "node:path";
 import JSZip from "jszip";
 import { afterEach, vi } from "vitest";
+import { computeSkillPromptVersion } from "../../../src/skills/loading/skill-version.js";
 import { createTempDirTracker } from "../../../test/helpers/temp-dir.js";
 import { BrowserAuthService, hashBrowserSessionToken } from "./browser-auth-service.js";
 import { testHostKey } from "./execution-store.test-support.js";
@@ -32,7 +33,11 @@ afterEach(() => {
 export async function createSkillHubServiceFixture(
   groups: string[] = [],
   governance?: Partial<SkillHubGovernanceClient>,
-  options: { registrySkill?: "absent" | "existing"; now?: () => number } = {},
+  options: {
+    registrySkill?: "absent" | "existing";
+    now?: () => number;
+    authenticate?: boolean;
+  } = {},
 ) {
   const workspaceRoot = tempDirs.make("platformclaw-skill-hub-");
   let userId = 0;
@@ -316,9 +321,13 @@ export async function createSkillHubServiceFixture(
       installed.set(`${agentId}/${target}`, {
         slug: String(params.slug),
         version,
-        revision: `sha256:${createHash("sha256").update(bytes).digest("hex").slice(0, 16)}`,
+        revision: computeSkillPromptVersion(markdown),
       });
-      return { ok: true, slug: params.slug };
+      return {
+        ok: true,
+        slug: params.slug,
+        sha256: createHash("sha256").update(bytes).digest("hex"),
+      };
     }
     return { ok: true };
   };
@@ -488,7 +497,8 @@ export async function createSkillHubServiceFixture(
     },
   });
   resources.push({ service, store });
-  const authenticated = await service.authenticate("session-token");
+  const authenticated =
+    options.authenticate === false ? actor : await service.authenticate("session-token");
   if (!authenticated) {
     throw new Error("Fixture authentication failed");
   }

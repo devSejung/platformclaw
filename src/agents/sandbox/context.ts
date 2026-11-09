@@ -214,6 +214,7 @@ async function syncSandboxSkillsToWorkspace(params: {
         excludedSourceDirectories: exclusionView.excludedSourceDirectories,
         missingSourceDirectories: exclusionView.missingSourceDirectories,
         policyApplied: synced.policyApplied,
+        ...(synced.reconcileSandboxSkillMounts ? { reconcileSandboxSkillMounts: true } : {}),
       },
       skillUsagePaths,
       excludedSkillFiles: synced.excludedSkillFiles,
@@ -459,6 +460,9 @@ async function resolveProvisionedSandboxContext(
     agentWorkspaceDir,
     skillsWorkspaceDir,
     ...(syncedSkills.materialized ? { readOnlySkillMounts: syncedSkills.materialized.mounts } : {}),
+    ...(syncedSkills.materialized?.reconcileSandboxSkillMounts
+      ? { reconcileSandboxSkillMounts: true }
+      : {}),
     ...(backendDeferredSkills ? { materializeSkills } : {}),
     cfg: resolvedCfg,
     ...(requiresPolicyConfig

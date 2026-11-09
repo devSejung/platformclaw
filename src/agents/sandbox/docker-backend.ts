@@ -64,6 +64,7 @@ async function createContainerSandboxBackend(
     ...(params.requireCurrentConfig !== undefined
       ? { requireCurrentConfig: params.requireCurrentConfig }
       : {}),
+    ...(params.reconcileSandboxSkillMounts ? { reconcileSandboxSkillMounts: true } : {}),
   });
   return createContainerSandboxBackendHandle({
     engine: boundEngine,

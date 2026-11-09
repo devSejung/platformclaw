@@ -40,6 +40,7 @@ export type SandboxBackendMaterializedSkills = {
   excludedSourceDirectories?: readonly string[];
   missingSourceDirectories?: readonly string[];
   policyApplied?: boolean;
+  reconcileSandboxSkillMounts?: true;
 };
 
 /** Optional lifecycle manager for an existing registered sandbox runtime. */
@@ -78,6 +79,7 @@ export type CreateSandboxBackendParams = {
   readOnlySkillMounts?: readonly SandboxBackendReadOnlySkillMount[];
   cfg: SandboxConfig;
   requireCurrentConfig?: boolean;
+  reconcileSandboxSkillMounts?: true;
 };
 
 /** Lets a dynamic backend choose between Gateway skills and a target-owned catalog. */

@@ -12,11 +12,13 @@ import {
   takeFirstSync,
 } from "./kysely-sync.js";
 import type {
+  SkillHubCatalogInstallation,
   SkillHubCatalogStore,
   SkillHubPublicationReceipt,
   SkillHubSharing,
 } from "./skill-hub-catalog-state.js";
 import type {
+  SkillHubCatalogInstallationRow,
   SkillHubCatalogPublicationRow,
   SkillHubCatalogRow,
 } from "./sqlite-schema-skill-hub-catalog.js";
@@ -34,6 +36,22 @@ function receipt(row: SkillHubCatalogPublicationRow): SkillHubPublicationReceipt
     state: row.state,
     createdAt: row.created_at,
     updatedAt: row.updated_at,
+  };
+}
+
+function installation(row: SkillHubCatalogInstallationRow): SkillHubCatalogInstallation {
+  return {
+    operationId: row.operation_id,
+    agentId: row.agent_id,
+    destination: row.destination,
+    targetId: row.target_id,
+    slug: row.slug,
+    skillId: row.skill_id,
+    version: row.version,
+    archiveSha256: row.archive_sha256,
+    installedRevision: row.installed_revision,
+    installedAt: row.installed_at,
+    state: row.state,
   };
 }
 
@@ -163,24 +181,7 @@ export class SqliteSkillHubCatalogArtifacts extends SqliteSkillHubCatalogCore {
       throw new ControlPlaneStateError("Invalid installed skill revision");
     }
     const completed = Number(
-      executeSync(
-        this.db,
-        this.query
-          .updateTable("skill_hub_catalog_installations")
-          .set({
-            state: "completed",
-            installed_revision: params.installedRevision ?? null,
-            installed_at: params.now,
-          })
-          .where("agent_id", "=", params.agentId)
-          .where("destination", "=", params.destination)
-          .where("target_id", "=", params.targetId)
-          .where("slug", "=", params.slug)
-          .where("operation_id", "=", params.operationId)
-          .where("skill_id", "=", params.skillId)
-          .where("version", "=", params.version)
-          .where("archive_sha256", "=", params.archiveSha256),
-      ).numAffectedRows,
+      executeSync(this.db, this.completeInstallationQuery(params)).numAffectedRows,
     );
     if (completed === 0) {
       throw new ControlPlaneConflictError(
@@ -188,6 +189,26 @@ export class SqliteSkillHubCatalogArtifacts extends SqliteSkillHubCatalogCore {
         "Another installation replaced this pending operation",
       );
     }
+  }
+
+  protected completeInstallationQuery(
+    params: Parameters<SkillHubCatalogStore["completeInstallation"]>[0],
+  ) {
+    return this.query
+      .updateTable("skill_hub_catalog_installations")
+      .set({
+        state: "completed",
+        installed_revision: params.installedRevision ?? null,
+        installed_at: params.now,
+      })
+      .where("agent_id", "=", params.agentId)
+      .where("destination", "=", params.destination)
+      .where("target_id", "=", params.targetId)
+      .where("slug", "=", params.slug)
+      .where("operation_id", "=", params.operationId)
+      .where("skill_id", "=", params.skillId)
+      .where("version", "=", params.version)
+      .where("archive_sha256", "=", params.archiveSha256);
   }
 
   async listInstallations(agentId: string, targetId: string) {
@@ -201,19 +222,26 @@ export class SqliteSkillHubCatalogArtifacts extends SqliteSkillHubCatalogCore {
         .where("target_id", "=", targetId)
         .orderBy("destination")
         .orderBy("slug"),
-    ).rows.map((row) => ({
-      operationId: row.operation_id,
-      agentId: row.agent_id,
-      destination: row.destination,
-      targetId: row.target_id,
-      slug: row.slug,
-      skillId: row.skill_id,
-      version: row.version,
-      archiveSha256: row.archive_sha256,
-      installedRevision: row.installed_revision,
-      installedAt: row.installed_at,
-      state: row.state,
-    }));
+    ).rows.map(installation);
+  }
+
+  async listPendingLegacyRoomInstallations() {
+    this.ensure();
+    return executeSync(
+      this.db,
+      this.query
+        .selectFrom("skill_hub_catalog_installations as origin")
+        .innerJoin("agent_bindings as binding", "binding.agent_id", "origin.agent_id")
+        .selectAll("origin")
+        .where("binding.kind", "=", "knox-room")
+        .where("origin.destination", "=", "platform_server")
+        .where("origin.target_id", "=", "platform-server")
+        .where("origin.operation_id", "like", "legacy-%")
+        .where("origin.state", "=", "pending")
+        .where("origin.installed_revision", "is", null)
+        .orderBy("origin.agent_id")
+        .orderBy("origin.slug"),
+    ).rows.map(installation);
   }
 
   async removeInstallation(params: Parameters<SkillHubCatalogStore["removeInstallation"]>[0]) {
@@ -260,51 +288,58 @@ export class SqliteSkillHubCatalogArtifacts extends SqliteSkillHubCatalogCore {
       if (binding.kind === "personal") {
         return [];
       }
-      const origins = executeSync(
-        this.db,
-        this.query
-          .selectFrom("skill_hub_catalog_installations as origin")
-          .leftJoin("skill_hub_catalog as skill", "skill.id", "origin.skill_id")
-          .leftJoin("skill_hub_catalog_blocked_versions as blocked", (join) =>
-            join
-              .onRef("blocked.skill_id", "=", "origin.skill_id")
-              .onRef("blocked.version", "=", "origin.version"),
-          )
-          .select([
-            "origin.slug",
-            "origin.state",
-            "origin.installed_revision",
-            "skill.id",
-            "skill.deleted_at",
-            "skill.purged_at",
-            "skill.purge_pending",
-            "skill.sharing_mode",
-            "skill.current_version",
-            "blocked.version as blocked_version",
-          ])
-          .where("origin.agent_id", "=", agentId)
-          .where("origin.destination", "=", "platform_server")
-          .where("origin.target_id", "=", "platform-server"),
-      ).rows;
-      return [
-        ...new Set(
-          origins
-            .filter(
-              (origin) =>
-                origin.state !== "completed" ||
-                origin.installed_revision === null ||
-                origin.id === null ||
-                origin.deleted_at !== null ||
-                origin.purged_at !== null ||
-                origin.purge_pending !== 0 ||
-                origin.sharing_mode !== "PUBLIC" ||
-                origin.current_version === null ||
-                origin.blocked_version !== null,
-            )
-            .map((origin) => origin.slug),
-        ),
-      ];
+      return this.roomInstallationRows(agentId)
+        .filter(
+          (origin) =>
+            origin.state !== "completed" ||
+            origin.installed_revision === null ||
+            !this.roomSkillAvailable(origin),
+        )
+        .map((origin) => origin.slug);
     });
+  }
+
+  protected roomInstallationRows(agentId: string, slug?: string) {
+    const query = this.query
+      .selectFrom("skill_hub_catalog_installations as origin")
+      .leftJoin("skill_hub_catalog as skill", "skill.id", "origin.skill_id")
+      .leftJoin("skill_hub_catalog_blocked_versions as blocked", (join) =>
+        join
+          .onRef("blocked.skill_id", "=", "origin.skill_id")
+          .onRef("blocked.version", "=", "origin.version"),
+      )
+      .select([
+        "origin.slug",
+        "origin.state",
+        "origin.installed_revision",
+        "skill.id",
+        "skill.revision",
+        "skill.deleted_at",
+        "skill.purged_at",
+        "skill.purge_pending",
+        "skill.sharing_mode",
+        "skill.current_version",
+        "blocked.version as blocked_version",
+      ])
+      .where("origin.agent_id", "=", agentId)
+      .where("origin.destination", "=", "platform_server")
+      .where("origin.target_id", "=", "platform-server");
+    return executeSync(this.db, slug === undefined ? query : query.where("origin.slug", "=", slug))
+      .rows;
+  }
+
+  protected roomSkillAvailable(
+    origin: ReturnType<SqliteSkillHubCatalogArtifacts["roomInstallationRows"]>[number],
+  ) {
+    return (
+      origin.id !== null &&
+      origin.deleted_at === null &&
+      origin.purged_at === null &&
+      origin.purge_pending === 0 &&
+      origin.sharing_mode === "PUBLIC" &&
+      origin.current_version !== null &&
+      origin.blocked_version === null
+    );
   }
 
   async listPendingPublications(limit = 20) {

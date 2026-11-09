@@ -965,6 +965,13 @@ export function createHookRunner(
           ) {
             throw new Error("before_skill_context returned invalid source directory exclusions");
           }
+          if (
+            next.reconcileSandboxSkillMounts !== undefined &&
+            (next.reconcileSandboxSkillMounts !== true ||
+              next.excludedSourceDirectories === undefined)
+          ) {
+            throw new Error("before_skill_context returned invalid sandbox skill mount policy");
+          }
           return {
             excludedPaths: [
               ...new Set([...(previous?.excludedPaths ?? []), ...next.excludedPaths]),
@@ -979,6 +986,9 @@ export function createHookRunner(
                     ]),
                   ],
                 }
+              : {}),
+            ...(previous?.reconcileSandboxSkillMounts || next.reconcileSandboxSkillMounts
+              ? { reconcileSandboxSkillMounts: true }
               : {}),
           };
         },

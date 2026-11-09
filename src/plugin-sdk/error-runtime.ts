@@ -27,3 +27,4 @@ export {
 export { PlatformMessageNotDispatchedError } from "../infra/outbound/deliver-types.js";
 export { isApprovalNotFoundError } from "../infra/approval-errors.ts";
 export { findAgentRunTerminalOutcome } from "../agents/agent-run-terminal-error.js";
+export { isSandboxSkillRefreshBusyError } from "../agents/sandbox/provisioning-error.js";

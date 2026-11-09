@@ -1,7 +1,8 @@
 import { randomUUID } from "node:crypto";
-import type { PlatformUser } from "./contracts.js";
+import { ControlPlaneAuthorizationError, type PlatformUser } from "./contracts.js";
 import { localizeSkillHubCommandError } from "./skill-hub-command-errors.js";
 import {
+  assertSkillHubWorkspace,
   resolveKnoxSkillHubWorkspace,
   type KnoxSkillHubCommandContext,
 } from "./skill-hub-command-workspace.js";
@@ -186,12 +187,57 @@ export abstract class SkillHubCommandService extends SkillHubPublicationService 
       }
       if (action === "installed") {
         const result = await this.commandInstalled(actor);
+        const inactive = new Map<string, string>();
+        let unlistedIncomplete = 0;
+        if (actor.roomBinding) {
+          const catalog = this.options.store.skillHubCatalog;
+          const origins = await catalog.listInstallations(actor.agentId, result.targetId);
+          const incomplete = new Set(
+            origins
+              .filter(
+                (origin) =>
+                  origin.destination === result.target &&
+                  (origin.state !== "completed" || origin.installedRevision === null),
+              )
+              .map((origin) => origin.slug),
+          );
+          const excluded = await catalog.roomExcludedSlugs(actor.agentId).catch((error) => {
+            if (error instanceof ControlPlaneAuthorizationError) {
+              throw new SkillHubServiceError("Knox room workspace changed; retry the command", 409);
+            }
+            throw error;
+          });
+          await assertSkillHubWorkspace(this.options.store, actor);
+          const listed = new Set(result.items.map((item) => item.skillKey));
+          const incompleteReason = ko
+            ? "설치 기록 미완료로 비활성"
+            : "Inactive because the installation record is incomplete";
+          const policyReason = ko
+            ? "공유방 스킬 정책으로 비활성"
+            : "Inactive under the room skill policy";
+          for (const slug of excluded) {
+            if (listed.has(slug)) {
+              inactive.set(slug, incomplete.has(slug) ? incompleteReason : policyReason);
+            } else if (incomplete.has(slug)) {
+              // Count undiscoverable records without disclosing catalog-only identities.
+              unlistedIncomplete += 1;
+            }
+          }
+        }
         return {
           text: [
             ko ? "설치된 스킬" : "Installed skills",
             ...result.items.map(
-              (item) => `${item.skillKey} · ${item.version ?? (ko ? "버전 정보 없음" : "unknown")}`,
+              (item) =>
+                `${item.skillKey} · ${inactive.get(item.skillKey) ?? item.version ?? (ko ? "버전 정보 없음" : "unknown")}`,
             ),
+            ...(unlistedIncomplete > 0
+              ? [
+                  ko
+                    ? `설치 기록이 미완료인 비활성 스킬 ${unlistedIncomplete}개`
+                    : `Inactive skills with incomplete installation records · ${unlistedIncomplete}`,
+                ]
+              : []),
           ].join("\n"),
         };
       }

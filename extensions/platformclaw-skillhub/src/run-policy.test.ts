@@ -54,10 +54,19 @@ describe("SkillHub managed room skill policy", () => {
     await expect(f.run()).rejects.toThrow("permissions could not be verified");
   });
 
-  it("forwards managed source exclusions independently of discoverable candidates", async () => {
-    const excludedSourceDirectories = ["/workspace/skills/private"];
-    await expect(
-      fixture({ status: 200, body: { excludedPaths: [], excludedSourceDirectories } }).run(),
-    ).resolves.toEqual({ excludedPaths: [], excludedSourceDirectories });
-  });
+  it.each([
+    { excludedSourceDirectories: [] },
+    { excludedSourceDirectories: ["/workspace/skills/private"] },
+  ])(
+    "opts in to room reconciliation with source exclusions $excludedSourceDirectories",
+    async ({ excludedSourceDirectories }) => {
+      await expect(
+        fixture({ status: 200, body: { excludedPaths: [], excludedSourceDirectories } }).run(),
+      ).resolves.toEqual({
+        excludedPaths: [],
+        excludedSourceDirectories,
+        reconcileSandboxSkillMounts: true,
+      });
+    },
+  );
 });
