@@ -201,12 +201,17 @@ export abstract class SkillHubCommandService extends SkillHubPublicationService 
               )
               .map((origin) => origin.slug),
           );
-          const excluded = await catalog.roomExcludedSlugs(actor.agentId).catch((error) => {
-            if (error instanceof ControlPlaneAuthorizationError) {
-              throw new SkillHubServiceError("Knox room workspace changed; retry the command", 409);
-            }
-            throw error;
-          });
+          const excluded = await catalog
+            .roomExcludedSlugs(actor.agentId)
+            .catch((error: unknown) => {
+              if (error instanceof ControlPlaneAuthorizationError) {
+                throw new SkillHubServiceError(
+                  "Knox room workspace changed; retry the command",
+                  409,
+                );
+              }
+              throw error;
+            });
           await assertSkillHubWorkspace(this.options.store, actor);
           const listed = new Set(result.items.map((item) => item.skillKey));
           const incompleteReason = ko

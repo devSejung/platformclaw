@@ -313,7 +313,7 @@ async function readZipEntryBounded(
   });
 }
 
-export type SkillHubArchiveFileDigest = { bytes: number; sha256: string };
+type SkillHubArchiveFileDigest = { bytes: number; sha256: string };
 export type SkillHubArchiveInventory = {
   entryPaths: string[];
   files: Map<string, SkillHubArchiveFileDigest>;

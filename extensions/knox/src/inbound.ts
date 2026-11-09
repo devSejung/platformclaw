@@ -1,9 +1,10 @@
 import { createHash } from "node:crypto";
 import type { OpenClawConfig } from "openclaw/plugin-sdk/config-contracts";
 import {
+  collectErrorGraphCandidates,
+  extractErrorCode,
   findAgentRunTerminalOutcome,
   formatErrorMessage,
-  isSandboxSkillRefreshBusyError,
 } from "openclaw/plugin-sdk/error-runtime";
 import { redactSensitiveText } from "openclaw/plugin-sdk/logging-core";
 import {
@@ -49,14 +50,22 @@ function describeSourceFailure(
 
 function runtimeFailureReason(error: unknown): KnoxReplyFailureReason {
   const terminal = findAgentRunTerminalOutcome(error);
-  if (terminal) {
-    const reason = terminalFailureReason(terminal);
-    return reason === "runtime-error" && isSandboxSkillRefreshBusyError(error)
-      ? "sandbox-skill-refresh-busy"
-      : reason;
+  const terminalReason = terminal ? terminalFailureReason(terminal) : undefined;
+  if (terminalReason && terminalReason !== "runtime-error") {
+    return terminalReason;
   }
-  if (isSandboxSkillRefreshBusyError(error)) {
-    return "sandbox-skill-refresh-busy";
+  const skillRefreshBusy = "sandbox-skill-refresh-busy";
+  if (
+    collectErrorGraphCandidates(error, (candidate) => [
+      candidate.cause,
+      candidate.error,
+      ...(Array.isArray(candidate.errors) ? candidate.errors : []),
+    ]).some((candidate) => extractErrorCode(candidate) === skillRefreshBusy)
+  ) {
+    return skillRefreshBusy;
+  }
+  if (terminalReason) {
+    return terminalReason;
   }
   let candidate = error;
   const seen = new Set<object>();

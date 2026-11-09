@@ -352,7 +352,7 @@ export function createPlatformClawExecutionBackendFactory(
             ? true
             : (createParams.requireCurrentConfig ?? true),
           ...(materializedSkills.reconcileSandboxSkillMounts
-            ? { reconcileSandboxSkillMounts: true }
+            ? { reconcileSandboxSkillMounts: true as const }
             : {}),
         }
       : createParams;

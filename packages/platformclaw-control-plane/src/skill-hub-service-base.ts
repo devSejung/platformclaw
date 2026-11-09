@@ -5,6 +5,7 @@ import { tmpdir } from "node:os";
 import path from "node:path";
 import { Readable, Transform } from "node:stream";
 import { finished, pipeline } from "node:stream/promises";
+import { isRecord } from "@openclaw/normalization-core/record-coerce";
 import JSZip from "jszip";
 import { ControlPlaneStateError, type PlatformUser } from "./contracts.js";
 import { GatewayAdminRpcError } from "./gateway-admin-rpc-client.js";
@@ -60,8 +61,8 @@ async function listWorkspaceSkillFiles(
   if (!isInside(skillsDir, skillDir) || skillDir === skillsDir) {
     throw new SkillHubServiceError("invalid workspace skill path", 400);
   }
-  const rootStat = await lstat(skillDir).catch((error: NodeJS.ErrnoException) => {
-    if (archivePaths && error.code !== "ENOENT") {
+  const rootStat = await lstat(skillDir).catch((error: unknown) => {
+    if (archivePaths && (!isRecord(error) || error.code !== "ENOENT")) {
       throw error;
     }
     return null;
