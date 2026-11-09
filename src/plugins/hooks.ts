@@ -965,10 +965,11 @@ export function createHookRunner(
           ) {
             throw new Error("before_skill_context returned invalid source directory exclusions");
           }
+          // Runtime plugin results can violate the declared literal type.
+          const reconcileSandboxSkillMounts: unknown = next.reconcileSandboxSkillMounts;
           if (
-            next.reconcileSandboxSkillMounts !== undefined &&
-            (next.reconcileSandboxSkillMounts !== true ||
-              next.excludedSourceDirectories === undefined)
+            reconcileSandboxSkillMounts !== undefined &&
+            (reconcileSandboxSkillMounts !== true || next.excludedSourceDirectories === undefined)
           ) {
             throw new Error("before_skill_context returned invalid sandbox skill mount policy");
           }
@@ -987,7 +988,7 @@ export function createHookRunner(
                   ],
                 }
               : {}),
-            ...(previous?.reconcileSandboxSkillMounts || next.reconcileSandboxSkillMounts
+            ...(previous?.reconcileSandboxSkillMounts || reconcileSandboxSkillMounts
               ? { reconcileSandboxSkillMounts: true }
               : {}),
           };

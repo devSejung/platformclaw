@@ -92,4 +92,22 @@ describe("before_skill_context", () => {
       "invalid source directory exclusions",
     );
   });
+
+  it.each([
+    { excludedSourceDirectories: [], reconcileSandboxSkillMounts: false },
+    { excludedSourceDirectories: [], reconcileSandboxSkillMounts: "true" },
+    { reconcileSandboxSkillMounts: true },
+  ])("rejects invalid sandbox mount policy %j", async (result) => {
+    const runner = createHookRunner(
+      createMockPluginRegistry([
+        {
+          hookName: "before_skill_context",
+          handler: () => ({ excludedPaths: [], ...result }),
+        },
+      ]),
+    );
+    await expect(runner.runBeforeSkillContext({ candidates: [] }, {})).rejects.toThrow(
+      "invalid sandbox skill mount policy",
+    );
+  });
 });
