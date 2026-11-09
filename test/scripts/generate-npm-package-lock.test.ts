@@ -254,11 +254,11 @@ describe("generate-npm-package-lock", () => {
     });
   });
 
-  it("preserves decorated snapshot children under the hosted parent's actual package version", () => {
+  it("preserves decorated snapshot children for an unambiguous Git commit parent", () => {
     const source = "https://codeload.github.com/example/acpx/tar.gz/reviewed";
-    const plan = resolvePnpmLockOverridePlan({
+    const lockfile = {
       packages: {
-        [`acpx@${source}`]: { version: "0.13.2" },
+        [`acpx@${source}`]: { version: "0.13.2", resolution: { gitHosted: true } },
         "@agentclientprotocol/sdk@1.3.0": {},
         "@agentclientprotocol/sdk@1.4.0": {},
         "zod@3.25.76": {},
@@ -278,16 +278,26 @@ describe("generate-npm-package-lock", () => {
           dependencies: { zod: "3.25.76(patch_hash=other)" },
         },
       },
-    });
+    };
+    const plan = resolvePnpmLockOverridePlan(lockfile);
     expect(plan.scopedVersionOverrides).toEqual({
       "@agentclientprotocol/sdk@1.3.0": { zod: "3.25.76" },
       "@agentclientprotocol/sdk@1.4.0": { zod: "4.6.6" },
-      "acpx@0.13.2": {
+      acpx: {
         "@agentclientprotocol/sdk": { ".": "1.4.0", zod: "4.6.6" },
         zod: "4.6.6",
       },
     });
     expect(plan.versionOverrides).not.toHaveProperty("zod");
+
+    const ambiguous = resolvePnpmLockOverridePlan({
+      ...lockfile,
+      packages: { ...lockfile.packages, "acpx@0.13.2": {} },
+    });
+    expect(ambiguous.scopedVersionOverrides).not.toHaveProperty("acpx");
+    expect(ambiguous.scopedVersionOverrides["acpx@0.13.2"]).toEqual(
+      plan.scopedVersionOverrides.acpx,
+    );
   });
 
   it("does not invent a semantic parent version for an unversioned hosted package", () => {

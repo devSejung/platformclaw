@@ -22,6 +22,10 @@ services:
   openclaw-gateway:
     image: ${PLATFORMCLAW_IMAGE:-platformclaw:local}
     pull_policy: never
+    # 16 GiB budgets 8 GiB of old space plus at least 4 GiB for Node, buffers,
+    # and ssh/sshpass. The cgroup can reclaim file cache under pressure.
+    mem_limit: ${PLATFORMCLAW_GATEWAY_MEM_LIMIT:-16g}
+    memswap_limit: ${PLATFORMCLAW_GATEWAY_MEM_LIMIT:-16g} # Match mem_limit to disable swap.
     user: "${PLATFORMCLAW_RUNTIME_UID:?run platformclaw-compose with a service user}:${PLATFORMCLAW_RUNTIME_GID:?run platformclaw-compose with a service user}"
     depends_on:
       platformclaw-state-init:

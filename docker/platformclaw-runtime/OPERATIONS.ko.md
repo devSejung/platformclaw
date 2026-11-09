@@ -132,6 +132,27 @@ Compose config에는 숫자 설정만 표시된다. 별도 `docker compose exec 
 launcher가 계산한 옵션을 상속하지 않으므로 실제 Gateway 프로세스의
 `NODE_OPTIONS`와 유효 heap limit으로 적용 여부를 확인한다.
 
+Gateway의 heap 페이지가 스왑으로 밀리면 GC가 해당 페이지를 다시 읽는 동안 이벤트 루프가
+수십 초 멈춰 관리 RPC가 시간 초과될 수 있다. Compose는 `mem_limit`와 `memswap_limit`에
+`deployment.env`의 `PLATFORMCLAW_GATEWAY_MEM_LIMIT`를 동일하게 적용해 스왑을 막는다.
+키가 없거나 비어 있으면 `16g`를 사용한다. 기본값은 old-space 8GiB에 Node의 기타 할당,
+버퍼, 컨테이너 내 `ssh`·`sshpass` 프로세스용 여유 4GiB 이상을 더한 값이다. 나머지 공간에
+들어간 파일 캐시는 메모리 압박 시 cgroup 안에서 회수된다. 한도는
+`PLATFORMCLAW_GATEWAY_MAX_OLD_SPACE_SIZE`보다 최소 4GiB 높게 설정한다. Docker는 `0`을
+한도 미설정으로 처리하며, 양의 한도가 너무 낮으면 스왑 없이 OOM kill이 발생할 수 있다.
+`platformclaw-deploy up`, `image update`, `config apply`는
+같은 Compose 설정을 사용하며 컨테이너를 재생성할 때 새 한도를 적용한다.
+
+배포 후 cgroup v2와 systemd cgroup 드라이버를 사용하는 Docker 호스트에서 확인한다.
+
+```bash
+cat /sys/fs/cgroup/system.slice/docker-$(docker inspect -f '{{.Id}}' platformclaw-openclaw-gateway-1).scope/memory.swap.max
+docker inspect -f '{{.HostConfig.Memory}} {{.HostConfig.MemorySwap}}' platformclaw-openclaw-gateway-1
+```
+
+첫 명령은 `0`을, 두 번째 명령은 같은 양의 바이트 값 두 개를 출력해야 한다. 기본값이면
+두 값 모두 `17179869184`다.
+
 secret 경로는 `~/platformclaw/secrets`를 가리킨다. `init`은 경로만 기록하며, 첫
 새 설치의 첫 `up`은 PlatformClaw이 소유하는 Gateway/Knox/execution 계열의 누락 secret을
 생성한다. 외부 시스템 credential은 자동 생성하지 않는다. 예를 들어 private S3 가이드의
