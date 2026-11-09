@@ -11,6 +11,7 @@ import {
   registerPluginCommand,
 } from "../../../src/plugin-sdk/plugin-runtime.js";
 import type { OpenClawPluginApi } from "../../../src/plugins/types.js";
+import { computeSkillPromptVersion } from "../../../src/skills/loading/skill-version.js";
 import { resolveRelativeBundledPluginPublicModuleId } from "../../../src/test-utils/bundled-plugin-public-surface.js";
 import { readBrowserJsonBody } from "./browser-http-shared.js";
 import { KnoxRoutingService } from "./knox-routing-service.js";
@@ -145,11 +146,12 @@ async function setup(enabled = true, room = false, manager?: "admin" | "owner") 
 
 async function archive(version = "1.0.0") {
   const zip = new JSZip();
-  zip.file(
-    "SKILL.md",
-    `---\nname: demo-skill\ndescription: Demo\nversion: ${version}\n---\nInstructions`,
-  );
+  zip.file("SKILL.md", archiveManifest(version));
   return await zip.generateAsync({ type: "nodebuffer", compression: "DEFLATE" });
+}
+
+function archiveManifest(version: string): string {
+  return `---\nname: demo-skill\ndescription: Demo\nversion: ${version}\n---\nInstructions`;
 }
 
 describe("Knox Skill Hub command transport", () => {
@@ -375,8 +377,9 @@ describe("Knox Skill Hub command transport", () => {
           : await listVersions(namespace, slug),
       );
       f.adapterMocks.download.mockResolvedValue(await archive());
+      const revision = computeSkillPromptVersion(archiveManifest("1.0.0"));
       let installed = false;
-      f.adminRpcCall.mockImplementation(async (method) => {
+      f.adminRpcCall.mockImplementation(async (method, params) => {
         if (method === "skills.status") {
           return {
             skills: installed
@@ -386,7 +389,7 @@ describe("Knox Skill Hub command transport", () => {
                     source: "openclaw-workspace",
                     baseDir: "/workspace/skills/demo-skill",
                     version: "1.0.0",
-                    revision: "sha256:1111111111111111",
+                    revision,
                   },
                 ]
               : [],
@@ -397,6 +400,7 @@ describe("Knox Skill Hub command transport", () => {
         }
         if (method === "skills.install") {
           installed = true;
+          return { ok: true, slug: "demo-skill", sha256: params.sha256 };
         }
         if (method === "skills.uninstall") {
           installed = false;
@@ -414,7 +418,7 @@ describe("Knox Skill Hub command transport", () => {
         expect.objectContaining({
           agentId: f.agentId,
           force: true,
-          expectedSkillRevision: "sha256:1111111111111111",
+          expectedSkillRevision: revision,
         }),
       );
       await writeFile(
@@ -441,7 +445,7 @@ describe("Knox Skill Hub command transport", () => {
         "skills.uninstall",
         expect.objectContaining({
           agentId: f.agentId,
-          expectedSkillRevision: "sha256:1111111111111111",
+          expectedSkillRevision: revision,
         }),
       );
       expect(f.adapterMocks.deleteSkill).not.toHaveBeenCalled();

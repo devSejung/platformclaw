@@ -351,6 +351,9 @@ export function createPlatformClawExecutionBackendFactory(
           requireCurrentConfig: materializedSkills.policyApplied
             ? true
             : (createParams.requireCurrentConfig ?? true),
+          ...(materializedSkills.reconcileSandboxSkillMounts
+            ? { reconcileSandboxSkillMounts: true as const }
+            : {}),
         }
       : createParams;
     const effectiveSkillCatalog = skillCatalog ?? materializedSkills?.catalog;

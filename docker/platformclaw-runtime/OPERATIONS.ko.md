@@ -705,4 +705,33 @@ DOCKER_HOST="unix:///run/user/$(id -u)/docker.sock" docker ps -a
 | rootless socket 연결 실패               | `/run/user/<uid>/docker.sock`, user systemd 상태         |
 | VM 인증 실패                            | host-key 승인, 할당, AD 비밀번호, SafeConnect 연결 검사  |
 
+### Knox 그룹방 스킬 복구 확인
+
+배포 후 `/skillhub installed`에서 설치 기록 미완료나 방 정책으로 비활성화된 항목을 확인한다.
+Control DB에서 다음 읽기 전용 쿼리로 아직 확인이 필요한 서버 설치 기록을 찾는다.
+
+```sql
+select agent_id, slug
+from skill_hub_catalog_installations
+where agent_id like 'group-%'
+  and destination = 'platform_server'
+  and (state != 'completed' or installed_revision is null);
+```
+
+모든 미완료 행의 설치본이 검증되면 결과는 0건이다. 파일이 없거나 원본과 일치하지 않거나
+방 정책이 설치를 허용하지 않는 행은 계속 제외된다. 이 경우 Control 로그에서 해당 행의
+복구 제외 사유를 확인한다.
+
+방의 활성 작업이 끝난 뒤 메시지를 보내고, 서비스 계정의 rootless Docker에서 샌드박스의
+마운트를 확인한다. `sandbox`는 확인할 컨테이너 이름이다.
+
+```bash
+DOCKER_HOST="unix:///run/user/$(id -u)/docker.sock" \
+  docker inspect -f '{{range .Mounts}}{{println .Destination .Source}}{{end}}' "$sandbox"
+```
+
+복구된 `/workspace/skills/<slug>`에는 `.excluded-skill-empty` 소스가 없어야 하고,
+해당 경로의 `SKILL.md`를 읽을 수 있어야 한다. 방 정책으로 차단된 다른 스킬의 제외
+마운트는 남을 수 있다.
+
 로그를 공유할 때 AD 비밀번호, API key, token, 직원정보를 제거한다.

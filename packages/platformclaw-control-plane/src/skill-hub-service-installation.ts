@@ -1,11 +1,13 @@
 import { createHash } from "node:crypto";
 import type { PlatformUser } from "./contracts.js";
 import { SkillHubCatalogService } from "./skill-hub-catalog-service.js";
-import { assertSkillHubWorkspace } from "./skill-hub-command-workspace.js";
+import type { SkillHubCatalogInstallation } from "./skill-hub-catalog-state.js";
+import { assertSkillHubWorkspace, workspaceForAgent } from "./skill-hub-command-workspace.js";
 import {
   compareSemVer,
   isValidSkillHubVersion,
   MAX_SKILL_FILES,
+  SKILL_KEY_PATTERN,
   SKILL_HUB_UPLOAD_ARCHIVE_BYTES,
   SKILL_HUB_UPLOAD_ENTRY_BYTES,
   SKILL_HUB_UPLOAD_EXPANDED_BYTES,
@@ -15,10 +17,20 @@ import {
   validVersion,
   validateDownloadedArchive,
   type AuthenticatedWorkspace,
+  type SkillHubArchiveInventory,
   type SkillHubAudience,
   type SkillInstallTarget,
   type SkillHubTargetSnapshot,
 } from "./skill-hub-service-support.js";
+
+const archiveLimits = {
+  archiveBytes: SKILL_HUB_UPLOAD_ARCHIVE_BYTES,
+  expandedBytes: SKILL_HUB_UPLOAD_EXPANDED_BYTES,
+  entryBytes: SKILL_HUB_UPLOAD_ENTRY_BYTES,
+  files: MAX_SKILL_FILES,
+  entries: SKILL_HUB_UPLOAD_ENTRIES,
+};
+const legacyRoomMigration = "legacy-room-installations-v1";
 
 type SkillHubInstallResult = {
   ok: true;
@@ -30,6 +42,135 @@ type SkillHubInstallResult = {
 
 export abstract class SkillHubInstallationService extends SkillHubCatalogService {
   private readonly installsInFlight = new Map<string, Promise<SkillHubInstallResult>>();
+  private legacyRoomRecovery?: Promise<void>;
+
+  protected recoverLegacyRoomInstallations(): Promise<void> {
+    this.legacyRoomRecovery ??= this.recoverLegacyRoomInstallationsOnce()
+      .catch(() => {
+        console.warn("[PlatformClaw Skill Hub] Legacy room install recovery will retry");
+      })
+      .finally(() => {
+        this.legacyRoomRecovery = undefined;
+      });
+    return this.legacyRoomRecovery;
+  }
+
+  private async recoverLegacyRoomInstallationsOnce(): Promise<void> {
+    const catalog = this.options.store.skillHubCatalog;
+    if (
+      !(await catalog.migrationComplete()) ||
+      (await catalog.migrationComplete(legacyRoomMigration))
+    ) {
+      return;
+    }
+    let retry = false;
+    for (const origin of await catalog.listPendingLegacyRoomInstallations()) {
+      if (this.governanceClosed) {
+        return;
+      }
+      let reason: string | undefined;
+      try {
+        reason = await this.recoverLegacyRoomInstallation(origin);
+        retry ||= reason === "state changed during verification";
+      } catch {
+        reason = "verification unavailable, will retry";
+        retry = true;
+      }
+      if (reason) {
+        console.warn("[PlatformClaw Skill Hub] Legacy room skill remains excluded", {
+          agentId: origin.agentId,
+          slug: origin.slug,
+          reason,
+        });
+      }
+    }
+    if (!retry && !this.governanceClosed) {
+      await catalog.finishMigration(this.now(), legacyRoomMigration);
+    }
+  }
+
+  private async recoverLegacyRoomInstallation(
+    origin: SkillHubCatalogInstallation,
+  ): Promise<string | undefined> {
+    const catalog = this.options.store.skillHubCatalog;
+    if (!SKILL_KEY_PATTERN.test(origin.slug) || !isValidSkillHubVersion(origin.version)) {
+      return "invalid installation identity";
+    }
+    const entry = await catalog.get(origin.skillId);
+    if (
+      !entry ||
+      entry.sharing.mode !== "PUBLIC" ||
+      entry.deletedAt !== null ||
+      entry.purgedAt !== null ||
+      entry.purgePending ||
+      entry.currentVersion === null
+    ) {
+      return "skill is unavailable to rooms";
+    }
+    if ((await catalog.getBlockedVersions(entry.id)).includes(origin.version)) {
+      return "version is blocked";
+    }
+    const governance = this.options.governance;
+    if (!governance || entry.registryId === null) {
+      throw new SkillHubServiceError("Managed artifact access is unavailable", 503);
+    }
+    const version = (await this.versionScans(entry)).find(
+      (item) => item.version === origin.version,
+    );
+    if (!version?.downloadAvailable) {
+      return version?.scanner.blocked ? "version is blocked" : "recorded artifact is unavailable";
+    }
+    const archive = await governance.downloadArtifact({
+      skillId: entry.registryId,
+      versionId: version.id,
+      namespace: entry.namespace,
+      slug: entry.slug,
+    });
+    if (createHash("sha256").update(archive).digest("hex") !== origin.archiveSha256) {
+      return "recorded archive digest does not match";
+    }
+    const inventory: SkillHubArchiveInventory = { entryPaths: [], files: new Map() };
+    let revision: string;
+    try {
+      revision = await validateDownloadedArchive(
+        archive,
+        origin.slug,
+        origin.version,
+        archiveLimits,
+        inventory,
+      );
+    } catch (error) {
+      if (error instanceof SkillHubServiceError && error.statusCode === 400) {
+        return "recorded archive failed validation";
+      }
+      throw error;
+    }
+    const workspaceDir = workspaceForAgent(this.workspaceRoot, origin.agentId);
+    return await this.withWorkspaceMutationLock(origin.agentId, origin.destination, async () => {
+      try {
+        if (!(await this.workspaceSkillMatchesArchive(workspaceDir, origin.slug, inventory))) {
+          return "workspace files do not match the recorded archive";
+        }
+      } catch (error) {
+        if (
+          (error as NodeJS.ErrnoException)?.code === "ENOENT" ||
+          (error instanceof SkillHubServiceError && error.statusCode === 404)
+        ) {
+          return "workspace files are missing";
+        }
+        if (error instanceof SkillHubServiceError && error.statusCode === 400) {
+          return "workspace files are invalid";
+        }
+        throw error;
+      }
+      const recovered = await catalog.recoverLegacyRoomInstallation(
+        origin,
+        revision,
+        entry.revision,
+      );
+      return recovered ? undefined : "state changed during verification";
+    });
+  }
 
   async install(
     actor: AuthenticatedWorkspace,
@@ -178,13 +319,7 @@ export abstract class SkillHubInstallationService extends SkillHubCatalogService
       namespace,
       slug,
     });
-    await validateDownloadedArchive(archive, slug, version, {
-      archiveBytes: SKILL_HUB_UPLOAD_ARCHIVE_BYTES,
-      expandedBytes: SKILL_HUB_UPLOAD_EXPANDED_BYTES,
-      entryBytes: SKILL_HUB_UPLOAD_ENTRY_BYTES,
-      files: MAX_SKILL_FILES,
-      entries: SKILL_HUB_UPLOAD_ENTRIES,
-    });
+    const archiveRevision = await validateDownloadedArchive(archive, slug, version, archiveLimits);
     const sha256 = createHash("sha256").update(archive).digest("hex");
     const begin = await this.gatewayCall<{ uploadId?: string; receivedBytes?: number }>(
       "skills.upload.begin",
@@ -270,20 +405,30 @@ export abstract class SkillHubInstallationService extends SkillHubCatalogService
       expectedTargetRevision: execution.targetRevision,
       ...(installedRevision ? { expectedSkillRevision: installedRevision } : {}),
     });
-    if (result.ok !== true || result.slug !== slug) {
+    if (
+      result.ok !== true ||
+      result.slug !== slug ||
+      (actor.roomBinding && result.sha256 !== sha256)
+    ) {
       throw new SkillHubServiceError("Gateway returned an invalid install result", 503);
     }
-    const installedStatus = await this.workspaceSkills(actor, params.destination, execution);
-    const installedSkill = installedStatus.items.find((item) => item.skillKey === slug);
-    if (
-      !installedSkill?.revision ||
-      !/^sha256:[a-f0-9]{16}$/u.test(installedSkill.revision) ||
-      installedSkill.version !== version
-    ) {
-      throw new SkillHubServiceError(
-        "Installation completed but its revision is not verified; refresh the workspace before retrying",
-        503,
-      );
+    // Room discovery may still hide a pending install. The Gateway just committed
+    // the exact validated archive, so its manifest already supplies the revision.
+    let committedRevision = archiveRevision;
+    if (!actor.roomBinding) {
+      const installedStatus = await this.workspaceSkills(actor, params.destination, execution);
+      const installedSkill = installedStatus.items.find((item) => item.skillKey === slug);
+      if (
+        !installedSkill?.revision ||
+        !/^sha256:[a-f0-9]{16}$/u.test(installedSkill.revision) ||
+        installedSkill.version !== version
+      ) {
+        throw new SkillHubServiceError(
+          "Installation completed but its revision is not verified; refresh the workspace before retrying",
+          503,
+        );
+      }
+      committedRevision = installedSkill.revision;
     }
     await this.options.store.skillHubCatalog.completeInstallation({
       operationId: installation.operationId,
@@ -294,7 +439,7 @@ export abstract class SkillHubInstallationService extends SkillHubCatalogService
       skillId: entry.id,
       version,
       archiveSha256: sha256,
-      installedRevision: installedSkill.revision,
+      installedRevision: committedRevision,
       now: this.now(),
     });
     return {
@@ -350,13 +495,7 @@ export abstract class SkillHubInstallationService extends SkillHubCatalogService
       namespace: entry.namespace,
       slug: entry.slug,
     });
-    await validateDownloadedArchive(archive, entry.slug, version, {
-      archiveBytes: SKILL_HUB_UPLOAD_ARCHIVE_BYTES,
-      expandedBytes: SKILL_HUB_UPLOAD_EXPANDED_BYTES,
-      entryBytes: SKILL_HUB_UPLOAD_ENTRY_BYTES,
-      files: MAX_SKILL_FILES,
-      entries: SKILL_HUB_UPLOAD_ENTRIES,
-    });
+    await validateDownloadedArchive(archive, entry.slug, version, archiveLimits);
     await this.authorizeVersionInstallation(user, id, version, audience);
     return { archive, filename: `${entry.slug}-${version}.zip` };
   }

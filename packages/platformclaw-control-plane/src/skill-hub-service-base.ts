@@ -1,9 +1,11 @@
+import { createHash } from "node:crypto";
 import { constants as fsConstants, createWriteStream, type Stats } from "node:fs";
 import { lstat, mkdtemp, open, readdir, realpath, rm } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import path from "node:path";
 import { Readable, Transform } from "node:stream";
 import { finished, pipeline } from "node:stream/promises";
+import { isRecord } from "@openclaw/normalization-core/record-coerce";
 import JSZip from "jszip";
 import { ControlPlaneStateError, type PlatformUser } from "./contracts.js";
 import { GatewayAdminRpcError } from "./gateway-admin-rpc-client.js";
@@ -21,6 +23,7 @@ import {
   SKILL_HUB_UPLOAD_ARCHIVE_BYTES,
   SKILL_HUB_UPLOAD_ENTRY_BYTES,
   SKILL_HUB_UPLOAD_EXPANDED_BYTES,
+  type SkillHubArchiveInventory,
   type SkillHubServiceOptions,
   type SkillInstallTarget,
   type SkillHubTargetSnapshot,
@@ -28,6 +31,152 @@ import {
 } from "./skill-hub-service-support.js";
 
 const MAX_SKILL_DIRECTORY_DEPTH = 16;
+
+type WorkspaceSkillFile = { absolute: string; relative: string; stat: Stats };
+
+// ZIP extraction can create parent directories that aren't archive entries.
+// Search the sorted paths for an explicit directory or a descendant.
+function archiveHasDirectory(entryPaths: readonly string[], relative: string): boolean {
+  const prefix = `${relative}/`;
+  let first = 0;
+  let end = entryPaths.length;
+  while (first < end) {
+    const middle = Math.floor((first + end) / 2);
+    if (entryPaths[middle]! < prefix) {
+      first = middle + 1;
+    } else {
+      end = middle;
+    }
+  }
+  return entryPaths[first]?.startsWith(prefix) ?? false;
+}
+
+async function listWorkspaceSkillFiles(
+  workspaceDir: string,
+  skill: string,
+  archivePaths?: readonly string[],
+): Promise<WorkspaceSkillFile[]> {
+  const skillDir = path.resolve(workspaceDir, "skills", skill);
+  const skillsDir = path.resolve(workspaceDir, "skills");
+  if (!isInside(skillsDir, skillDir) || skillDir === skillsDir) {
+    throw new SkillHubServiceError("invalid workspace skill path", 400);
+  }
+  const rootStat = await lstat(skillDir).catch((error: unknown) => {
+    if (archivePaths && (!isRecord(error) || error.code !== "ENOENT")) {
+      throw error;
+    }
+    return null;
+  });
+  if (!rootStat?.isDirectory() || rootStat.isSymbolicLink()) {
+    throw new SkillHubServiceError("workspace skill directory is unavailable", 404);
+  }
+  const realRoot = await realpath(skillDir);
+  if (!isInside(await realpath(skillsDir), realRoot)) {
+    throw new SkillHubServiceError("workspace skill escapes the skills directory", 400);
+  }
+  const files: WorkspaceSkillFile[] = [];
+  const pending = [{ directory: skillDir, depth: 0 }];
+  while (pending.length > 0) {
+    const { directory: current, depth } = pending.pop()!;
+    const entries = (await readdir(current, { withFileTypes: true })).toSorted((a, b) =>
+      a.name.localeCompare(b.name),
+    );
+    for (const entry of entries) {
+      const absolute = path.join(current, entry.name);
+      const stat = await lstat(absolute);
+      if (stat.isSymbolicLink()) {
+        throw new SkillHubServiceError("workspace skill contains a symbolic link", 400);
+      }
+      if (!isInside(realRoot, await realpath(absolute))) {
+        throw new SkillHubServiceError("workspace skill contains an escaping path", 400);
+      }
+      if (isExcludedSkillArchivePath(entry.name, stat.isDirectory())) {
+        if (archivePaths) {
+          throw new SkillHubServiceError("workspace skill contains a reserved path", 400);
+        }
+        continue;
+      }
+      const relative = path.relative(skillDir, absolute).split(path.sep).join("/");
+      if (stat.isDirectory()) {
+        if (archivePaths && !archiveHasDirectory(archivePaths, relative)) {
+          throw new SkillHubServiceError("workspace skill contains an unrecorded directory", 400);
+        }
+        if (!archivePaths && depth >= MAX_SKILL_DIRECTORY_DEPTH) {
+          throw new SkillHubServiceError("workspace skill exceeds the directory depth limit", 400);
+        }
+        pending.push({ directory: absolute, depth: depth + 1 });
+        continue;
+      }
+      if (!stat.isFile() || stat.nlink !== 1) {
+        throw new SkillHubServiceError("workspace skill contains an unsupported file", 400);
+      }
+      files.push({
+        absolute,
+        relative,
+        stat,
+      });
+      if (files.length > MAX_SKILL_FILES || stat.size > SKILL_HUB_UPLOAD_ENTRY_BYTES) {
+        throw new SkillHubServiceError("workspace skill exceeds the configured package limit", 400);
+      }
+    }
+  }
+  if (!files.some((file) => file.relative === "SKILL.md")) {
+    throw new SkillHubServiceError("workspace skill is missing SKILL.md", archivePaths ? 404 : 400);
+  }
+  return files;
+}
+
+async function* readWorkspaceSkillFile(file: WorkspaceSkillFile): AsyncGenerator<Buffer> {
+  const isManifest = file.relative === "SKILL.md";
+  const maxBytes = isManifest ? MAX_SKILL_MD_BYTES : SKILL_HUB_UPLOAD_ENTRY_BYTES;
+  const flags =
+    process.platform === "win32"
+      ? fsConstants.O_RDONLY
+      : fsConstants.O_RDONLY | fsConstants.O_NOFOLLOW;
+  const handle = await open(file.absolute, flags);
+  try {
+    const opened = await handle.stat();
+    if (
+      !opened.isFile() ||
+      opened.nlink !== 1 ||
+      opened.dev !== file.stat.dev ||
+      opened.ino !== file.stat.ino ||
+      opened.size !== file.stat.size ||
+      opened.mtimeMs !== file.stat.mtimeMs
+    ) {
+      throw new SkillHubServiceError("workspace skill changed during packaging", 409);
+    }
+    let fileBytes = 0;
+    while (true) {
+      const buffer = Buffer.allocUnsafe(64 * 1024);
+      const { bytesRead } = await handle.read(buffer, 0, buffer.byteLength, null);
+      if (bytesRead === 0) {
+        break;
+      }
+      fileBytes += bytesRead;
+      if (fileBytes > maxBytes) {
+        throw new SkillHubServiceError(
+          isManifest
+            ? "SKILL.md exceeds the size limit"
+            : "workspace skill exceeds the configured package limit",
+          400,
+        );
+      }
+      yield buffer.subarray(0, bytesRead);
+    }
+    const after = await handle.stat();
+    if (
+      fileBytes !== opened.size ||
+      after.size !== opened.size ||
+      after.mtimeMs !== opened.mtimeMs ||
+      after.nlink !== 1
+    ) {
+      throw new SkillHubServiceError("workspace skill changed during packaging", 409);
+    }
+  } finally {
+    await handle.close();
+  }
+}
 
 export abstract class SkillHubServiceBase {
   protected readonly workspaceRoot: string;
@@ -279,72 +428,62 @@ export abstract class SkillHubServiceBase {
     );
   }
 
+  protected async workspaceSkillMatchesArchive(
+    workspaceDir: string,
+    skill: string,
+    archive: SkillHubArchiveInventory,
+  ): Promise<boolean> {
+    const realWorkspace = await realpath(workspaceDir);
+    const realWorkspaceRoot = await realpath(this.workspaceRoot);
+    const realSkillsDir = await realpath(path.join(workspaceDir, "skills"));
+    if (
+      realWorkspace !== path.join(realWorkspaceRoot, path.basename(workspaceDir)) ||
+      realSkillsDir !== path.join(realWorkspace, "skills")
+    ) {
+      return false;
+    }
+    const entryPaths = archive.entryPaths.toSorted();
+    const files = await listWorkspaceSkillFiles(workspaceDir, skill, entryPaths);
+    if (files.length !== archive.files.size) {
+      return false;
+    }
+    for (const file of files) {
+      const expected = archive.files.get(file.relative);
+      if (!expected || expected.bytes !== file.stat.size) {
+        return false;
+      }
+      const digest = createHash("sha256");
+      for await (const chunk of readWorkspaceSkillFile(file)) {
+        digest.update(chunk);
+      }
+      if (digest.digest("hex") !== expected.sha256) {
+        return false;
+      }
+    }
+    // Catch files added, removed, or swapped while streaming the earlier snapshot.
+    const after = await listWorkspaceSkillFiles(workspaceDir, skill, entryPaths);
+    return (
+      after.length === files.length &&
+      after.every((file, index) => {
+        const before = files[index]!;
+        return (
+          file.relative === before.relative &&
+          file.stat.dev === before.stat.dev &&
+          file.stat.ino === before.stat.ino &&
+          file.stat.size === before.stat.size &&
+          file.stat.mtimeMs === before.stat.mtimeMs &&
+          file.stat.ctimeMs === before.stat.ctimeMs
+        );
+      })
+    );
+  }
+
   protected async packageWorkspaceSkill(
     workspaceDir: string,
     skill: string,
     version: string,
   ): Promise<{ path: string; size: number; summary: string; cleanup(): Promise<void> }> {
-    const skillDir = path.resolve(workspaceDir, "skills", skill);
-    const skillsDir = path.resolve(workspaceDir, "skills");
-    if (!isInside(skillsDir, skillDir) || skillDir === skillsDir) {
-      throw new SkillHubServiceError("invalid workspace skill path", 400);
-    }
-    const rootStat = await lstat(skillDir).catch(() => null);
-    if (!rootStat?.isDirectory() || rootStat.isSymbolicLink()) {
-      throw new SkillHubServiceError("workspace skill directory is unavailable", 404);
-    }
-    const realRoot = await realpath(skillDir);
-    if (!isInside(await realpath(skillsDir), realRoot)) {
-      throw new SkillHubServiceError("workspace skill escapes the skills directory", 400);
-    }
-    const files: Array<{ absolute: string; relative: string; stat: Stats }> = [];
-    const pending = [{ directory: skillDir, depth: 0 }];
-    while (pending.length > 0) {
-      const { directory: current, depth } = pending.pop()!;
-      const entries = (await readdir(current, { withFileTypes: true })).toSorted((a, b) =>
-        a.name.localeCompare(b.name),
-      );
-      for (const entry of entries) {
-        const absolute = path.join(current, entry.name);
-        const stat = await lstat(absolute);
-        if (stat.isSymbolicLink()) {
-          throw new SkillHubServiceError("workspace skill contains a symbolic link", 400);
-        }
-        if (!isInside(realRoot, await realpath(absolute))) {
-          throw new SkillHubServiceError("workspace skill contains an escaping path", 400);
-        }
-        if (isExcludedSkillArchivePath(entry.name, stat.isDirectory())) {
-          continue;
-        }
-        if (stat.isDirectory()) {
-          if (depth >= MAX_SKILL_DIRECTORY_DEPTH) {
-            throw new SkillHubServiceError(
-              "workspace skill exceeds the directory depth limit",
-              400,
-            );
-          }
-          pending.push({ directory: absolute, depth: depth + 1 });
-          continue;
-        }
-        if (!stat.isFile() || stat.nlink !== 1) {
-          throw new SkillHubServiceError("workspace skill contains an unsupported file", 400);
-        }
-        files.push({
-          absolute,
-          relative: path.relative(skillDir, absolute).split(path.sep).join("/"),
-          stat,
-        });
-        if (files.length > MAX_SKILL_FILES || stat.size > SKILL_HUB_UPLOAD_ENTRY_BYTES) {
-          throw new SkillHubServiceError(
-            "workspace skill exceeds the configured package limit",
-            400,
-          );
-        }
-      }
-    }
-    if (!files.some((file) => file.relative === "SKILL.md")) {
-      throw new SkillHubServiceError("workspace skill is missing SKILL.md", 400);
-    }
+    const files = await listWorkspaceSkillFiles(workspaceDir, skill);
 
     let totalBytes = 0;
     let summary: string | undefined;
@@ -354,76 +493,29 @@ export abstract class SkillHubServiceBase {
         throw new SkillHubServiceError("workspace skill exceeds the configured package limit", 400);
       }
     };
-    const readSource = async function* (file: (typeof files)[number]) {
-      const flags =
-        process.platform === "win32"
-          ? fsConstants.O_RDONLY
-          : fsConstants.O_RDONLY | fsConstants.O_NOFOLLOW;
-      const handle = await open(file.absolute, flags);
-      try {
-        const opened = await handle.stat();
-        if (
-          !opened.isFile() ||
-          opened.nlink !== 1 ||
-          opened.dev !== file.stat.dev ||
-          opened.ino !== file.stat.ino ||
-          opened.size !== file.stat.size ||
-          opened.mtimeMs !== file.stat.mtimeMs
-        ) {
-          throw new SkillHubServiceError("workspace skill changed during packaging", 409);
+    const readSource = async function* (file: WorkspaceSkillFile) {
+      if (file.relative !== "SKILL.md") {
+        for await (const chunk of readWorkspaceSkillFile(file)) {
+          countBytes(chunk.byteLength);
+          yield chunk;
         }
-        const markdown: Buffer[] = [];
-        let fileBytes = 0;
-        while (true) {
-          const buffer = Buffer.allocUnsafe(64 * 1024);
-          const { bytesRead } = await handle.read(buffer, 0, buffer.byteLength, null);
-          if (bytesRead === 0) {
-            break;
-          }
-          const chunk = buffer.subarray(0, bytesRead);
-          fileBytes += bytesRead;
-          if (fileBytes > SKILL_HUB_UPLOAD_ENTRY_BYTES) {
-            throw new SkillHubServiceError(
-              "workspace skill exceeds the configured package limit",
-              400,
-            );
-          }
-          if (file.relative === "SKILL.md") {
-            if (fileBytes > MAX_SKILL_MD_BYTES) {
-              throw new SkillHubServiceError("SKILL.md exceeds the size limit", 400);
-            }
-            markdown.push(chunk);
-          } else {
-            countBytes(bytesRead);
-            yield chunk;
-          }
-        }
-        const after = await handle.stat();
-        if (
-          fileBytes !== opened.size ||
-          after.size !== opened.size ||
-          after.mtimeMs !== opened.mtimeMs ||
-          after.nlink !== 1
-        ) {
-          throw new SkillHubServiceError("workspace skill changed during packaging", 409);
-        }
-        if (file.relative === "SKILL.md") {
-          const metadata = parseSkillMarkdown(
-            Buffer.concat(markdown, fileBytes).toString("utf8"),
-            skill,
-            version,
-          );
-          const bytes = Buffer.from(metadata.source, "utf8");
-          if (bytes.byteLength > MAX_SKILL_MD_BYTES) {
-            throw new SkillHubServiceError("SKILL.md exceeds the size limit", 400);
-          }
-          summary = metadata.description;
-          countBytes(bytes.byteLength);
-          yield bytes;
-        }
-      } finally {
-        await handle.close();
+        return;
       }
+      if (file.stat.size > MAX_SKILL_MD_BYTES) {
+        throw new SkillHubServiceError("SKILL.md exceeds the size limit", 400);
+      }
+      const markdown: Buffer[] = [];
+      for await (const chunk of readWorkspaceSkillFile(file)) {
+        markdown.push(chunk);
+      }
+      const metadata = parseSkillMarkdown(Buffer.concat(markdown).toString("utf8"), skill, version);
+      const bytes = Buffer.from(metadata.source, "utf8");
+      if (bytes.byteLength > MAX_SKILL_MD_BYTES) {
+        throw new SkillHubServiceError("SKILL.md exceeds the size limit", 400);
+      }
+      summary = metadata.description;
+      countBytes(bytes.byteLength);
+      yield bytes;
     };
     const directory = await mkdtemp(path.join(tmpdir(), `platformclaw-skill-hub-${skill}-`));
     const archivePath = path.join(directory, "archive.zip");

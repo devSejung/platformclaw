@@ -1,7 +1,11 @@
 import { sql } from "kysely";
 import { ControlPlaneAuthorizationError, ControlPlaneStateError } from "./contracts.js";
 import { executeSync, runImmediateTransaction, takeFirstSync } from "./kysely-sync.js";
-import type { SkillHubCatalogStore } from "./skill-hub-catalog-state.js";
+import type {
+  SkillHubCatalogInstallation,
+  SkillHubCatalogMigration,
+  SkillHubCatalogStore,
+} from "./skill-hub-catalog-state.js";
 import type { SkillHubCatalogRow } from "./sqlite-schema-skill-hub-catalog.js";
 import { ensureSkillHubStateSchema } from "./sqlite-schema.js";
 import { SqliteSkillHubCatalogLifecycle } from "./sqlite-skill-hub-catalog-lifecycle.js";
@@ -491,15 +495,63 @@ export class SqliteSkillHubCatalogStore
     }
   }
 
-  async migrationComplete() {
+  async recoverLegacyRoomInstallation(
+    origin: SkillHubCatalogInstallation,
+    installedRevision: string,
+    expectedCatalogRevision: number,
+  ): Promise<boolean> {
+    this.ensure();
+    if (
+      !/^sha256:[a-f0-9]{16}$/u.test(installedRevision) ||
+      !origin.operationId.startsWith("legacy-") ||
+      origin.destination !== "platform_server" ||
+      origin.targetId !== "platform-server"
+    ) {
+      throw new ControlPlaneStateError("Invalid legacy room installation identity");
+    }
+    return runImmediateTransaction(this.db, () => {
+      // The artifact and filesystem proof happened outside this transaction.
+      // A concurrent catalog edit, block, or replacement must win over recovery.
+      const binding = takeFirstSync(
+        this.db,
+        this.query
+          .selectFrom("agent_bindings")
+          .select("kind")
+          .where("agent_id", "=", origin.agentId),
+      );
+      const [current] = this.roomInstallationRows(origin.agentId, origin.slug);
+      if (
+        binding?.kind !== "knox-room" ||
+        !current ||
+        current.id !== origin.skillId ||
+        current.revision !== expectedCatalogRevision ||
+        !this.roomSkillAvailable(current)
+      ) {
+        return false;
+      }
+      return (
+        Number(
+          executeSync(
+            this.db,
+            this.completeInstallationQuery({
+              ...origin,
+              installedRevision,
+              now: origin.installedAt,
+            })
+              .where("state", "=", "pending")
+              .where("installed_revision", "is", null),
+          ).numAffectedRows,
+        ) > 0
+      );
+    });
+  }
+
+  async migrationComplete(id: SkillHubCatalogMigration = "sharing-v1") {
     this.ensure();
     return Boolean(
       takeFirstSync(
         this.db,
-        this.query
-          .selectFrom("skill_hub_catalog_migrations")
-          .select("id")
-          .where("id", "=", "sharing-v1"),
+        this.query.selectFrom("skill_hub_catalog_migrations").select("id").where("id", "=", id),
       ),
     );
   }
@@ -523,13 +575,13 @@ export class SqliteSkillHubCatalogStore
     ).rows;
   }
 
-  async finishMigration(now: number) {
+  async finishMigration(now: number, id: SkillHubCatalogMigration = "sharing-v1") {
     this.ensure();
     executeSync(
       this.db,
       this.query
         .insertInto("skill_hub_catalog_migrations")
-        .values({ id: "sharing-v1", completed_at: now })
+        .values({ id, completed_at: now })
         .onConflict((conflict) => conflict.column("id").doNothing()),
     );
   }

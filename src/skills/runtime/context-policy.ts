@@ -40,6 +40,7 @@ export async function resolveSkillContextExclusions(
   excludedPaths: ReadonlySet<string>;
   excludedSourceDirectories: ReadonlySet<string>;
   policyApplied: boolean;
+  reconcileSandboxSkillMounts?: true;
 }> {
   const runner = getGlobalHookRunner();
   if (!runner?.hasHooks("before_skill_context", context)) {
@@ -51,6 +52,7 @@ export async function resolveSkillContextExclusions(
       excludedPaths: new Set(result?.excludedPaths ?? []),
       excludedSourceDirectories: new Set(result?.excludedSourceDirectories ?? []),
       policyApplied: true,
+      ...(result?.reconcileSandboxSkillMounts ? { reconcileSandboxSkillMounts: true } : {}),
     };
   } catch (error) {
     throw new SkillContextPolicyError(error);

@@ -31,6 +31,7 @@ import {
 import { isMissingProviderAuthError } from "../../agents/model-auth.js";
 import { isFallbackSummaryError } from "../../agents/model-fallback-attempt.js";
 import { resolveAgentRunErrorLifecycleFields } from "../../agents/run-termination.js";
+import { isSandboxSkillRefreshBusyError } from "../../agents/sandbox/provisioning-error.js";
 import { resolveSilentReplyPolicy } from "../../config/silent-reply.js";
 import type { OpenClawConfig } from "../../config/types.openclaw.js";
 import { formatErrorMessage } from "../../infra/errors.js";
@@ -572,6 +573,14 @@ export function buildKnownAgentRunFailureReplyPayload(params: {
 }): ReplyPayload | undefined {
   const markFailurePayload = <T extends ReplyPayload>(payload: T) =>
     markAgentRunFailureReplyPayload(payload, resolveAgentRunFailureOutcome(params.err));
+  if (isSandboxSkillRefreshBusyError(params.err)) {
+    return setReplyPayloadMetadata(
+      markFailurePayload({
+        text: "Please try again shortly while the sandbox applies the updated skill settings.",
+      }),
+      { noVisibleReplyReason: "sandbox-skill-refresh-busy" },
+    );
+  }
   const message = formatErrorMessage(params.err);
   const isFallbackSummary = isFallbackSummaryError(params.err);
   const isBilling = isFallbackSummary

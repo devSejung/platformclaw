@@ -3,6 +3,7 @@ import { describe, expect, it } from "vitest";
 import { createDeferred } from "../shared/deferred.js";
 import {
   beginAgentWorkAdmission,
+  bindAgentWorkAdmissionContext,
   hasPendingAgentWork,
   tryAcquireAgentWorkMutation,
   withAgentWorkAdmission,
@@ -70,5 +71,49 @@ describe("agent work admission", () => {
     } finally {
       release();
     }
+  });
+
+  it("fences in-band mutations across a queue handoff without ignoring competing claims", () => {
+    const owner = "refresh-owner";
+    const turn = beginAgentWorkAdmission(owner);
+    const competing = beginAgentWorkAdmission(owner);
+    const acquire = turn.run(() =>
+      bindAgentWorkAdmissionContext(() =>
+        tryAcquireAgentWorkMutation(owner, {
+          allowCurrent: true,
+          createBusyError: () => new Error("Skill refresh busy"),
+        }),
+      ),
+    );
+    try {
+      expect(competing.run(acquire)).toBeNull();
+      competing();
+      const fence = acquire();
+      expect(fence).not.toBeNull();
+      try {
+        expect(() => beginAgentWorkAdmission(owner)).toThrow("Skill refresh busy");
+      } finally {
+        fence?.();
+      }
+      turn();
+      const newTurn = beginAgentWorkAdmission(owner);
+      try {
+        expect(acquire()).toBeNull();
+      } finally {
+        newTurn();
+      }
+    } finally {
+      competing();
+      turn();
+    }
+  });
+
+  it("does not treat a nested same-agent execution as the active caller's own work", async () => {
+    const owner = "nested-execution-owner";
+    await withAgentWorkAdmission(owner, async () => {
+      await withAgentWorkAdmission(owner, async () => {
+        expect(tryAcquireAgentWorkMutation(owner, { allowCurrent: true })).toBeNull();
+      });
+    });
   });
 });

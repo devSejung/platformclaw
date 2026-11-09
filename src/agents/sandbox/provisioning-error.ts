@@ -1,6 +1,32 @@
-import { formatErrorMessage } from "../../infra/errors.js";
+import { collectErrorGraphCandidates, formatErrorMessage } from "../../infra/errors.js";
 
 const SANDBOX_PROVISIONING_ERROR_CODE = "sandbox_provisioning";
+const SANDBOX_SKILL_REFRESH_BUSY_CODE = "sandbox-skill-refresh-busy";
+
+/** A managed skill mount update must wait for the current sandbox owner to finish. */
+export class SandboxSkillRefreshBusyError extends Error {
+  readonly code = SANDBOX_SKILL_REFRESH_BUSY_CODE;
+
+  constructor() {
+    super("Please try again shortly while the sandbox applies the updated skill settings.");
+    this.name = "SandboxSkillRefreshBusyError";
+  }
+}
+
+export function isSandboxSkillRefreshBusyError(error: unknown): boolean {
+  return collectErrorGraphCandidates(error, (candidate) => [
+    candidate.cause,
+    candidate.error,
+    ...(Array.isArray(candidate.errors) ? candidate.errors : []),
+  ]).some(
+    (candidate) =>
+      candidate instanceof SandboxSkillRefreshBusyError ||
+      (typeof candidate === "object" &&
+        candidate !== null &&
+        "code" in candidate &&
+        candidate.code === SANDBOX_SKILL_REFRESH_BUSY_CODE),
+  );
+}
 
 /** Model-independent sandbox setup failure that must not consume model fallbacks. */
 class SandboxProvisioningError extends Error {

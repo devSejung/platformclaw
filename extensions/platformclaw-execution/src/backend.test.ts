@@ -565,7 +565,7 @@ describe("PlatformClaw execution backend", () => {
     expect(dependencies.createPlatformServerHandle).not.toHaveBeenCalled();
   });
 
-  it("materializes Basic workspace skills before creating the Docker handle", async () => {
+  it("materializes Basic workspace skills and forwards the mount refresh policy", async () => {
     const dependencies = createDependencies(async () => ({
       kind: "platform_server",
       agentId: "person_one",
@@ -573,12 +573,30 @@ describe("PlatformClaw execution backend", () => {
       targetId: "server-default",
     }));
     const params = createParams("person_one");
+    const mounts = [
+      { hostPath: "/gateway/managed-skills", containerPath: "/opt/platformclaw/skills" },
+    ];
+    vi.mocked(params.materializeSkills!).mockResolvedValueOnce({
+      catalog: { revision: "gateway:test", files: [] },
+      mounts,
+      policyApplied: true,
+      reconcileSandboxSkillMounts: true,
+    });
 
     await createPlatformClawExecutionBackendFactory(dependencies)(params);
 
     expect(params.materializeSkills).toHaveBeenCalledOnce();
     expect(vi.mocked(params.materializeSkills!).mock.invocationCallOrder[0]).toBeLessThan(
       vi.mocked(dependencies.createPlatformServerHandle).mock.invocationCallOrder[0]!,
+    );
+    expect(dependencies.createPlatformServerHandle).toHaveBeenCalledWith(
+      expect.objectContaining({
+        createParams: expect.objectContaining({
+          readOnlySkillMounts: mounts,
+          requireCurrentConfig: true,
+          reconcileSandboxSkillMounts: true,
+        }),
+      }),
     );
   });
 

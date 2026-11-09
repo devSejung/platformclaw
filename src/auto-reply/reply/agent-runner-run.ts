@@ -55,7 +55,11 @@ import * as replyRunState from "./reply-operation-run-state.js";
 import { type ReplyOperation, replyRunRegistry } from "./reply-run-registry.js";
 import { bindReplyOperationTyping, refreshReplyOperationTyping } from "./reply-run-typing.js";
 import { createReplyToModeFilterForChannel, resolveReplyToMode } from "./reply-threading.js";
-import { admitReplyTurn, resolveReplyTurnKind } from "./reply-turn-admission.js";
+import {
+  admitReplyTurn,
+  resolveReplyTurnKind,
+  runWithReplyOperationLifecycleAdmission,
+} from "./reply-turn-admission.js";
 import {
   isDuplicateRestartRecoverySource,
   retireTerminalRestartRecoverySourceClaim,
@@ -608,64 +612,66 @@ export async function runReplyAgent(
       cleanupTranscripts: true,
     });
   try {
-    return await executePreparedReplyAgentRun({
-      activeSessionStore,
-      admitUserTurn,
-      agentCfgContextTokens,
-      applyReplyToMode,
-      beforeAgentReplyDispatchedForSteer,
-      beginBeforeAgentReply,
-      blockReplyChunking,
-      blockReplyPipeline,
-      blockStreamingEnabled,
-      cfg,
-      checkpointBeforeAgentReply,
-      confirmRestartRecoveryArmedAfterLeaseLoss,
-      commandBody,
-      defaultModel,
-      followupRun,
-      getActiveIsNewSession: () => activeIsNewSession,
-      getActiveSessionEntry: () => activeSessionEntry,
-      isHeartbeat,
-      isRestartRecoveryArmed,
-      opts: runOpts,
-      pendingToolTasks,
-      performSessionReset: resetSession,
-      queueKey,
-      replyMediaContext,
-      replyOperation,
-      replyRouteThreadId,
-      replyThreadingOverride,
-      replyToChannel,
-      replyToMode,
-      resetSessionAfterRoleOrderingConflict,
-      resolvedBlockStreamingBreak,
-      resolvedQueue,
-      resolvedVerboseLevel,
-      returnWithQueuedFollowupDrain,
-      runFollowupTurn,
-      runtimePolicySessionKey,
-      sendDirectCompactionNotice,
-      sessionCtx,
-      sessionKey,
-      setActiveSessionEntry: (entry) => {
-        activeSessionEntry = entry;
-      },
-      setRunFollowupTurn: (runner) => {
-        runFollowupTurn = runner;
-      },
-      shouldEmitToolOutput,
-      shouldEmitToolResult,
-      shouldInjectGroupIntro,
-      storePath,
-      toolProgressDetail,
-      traceAgentPhase,
-      transcriptCommandBody,
-      turnAdoptionLifecycle,
-      typing,
-      typingMode,
-      typingSignals,
-    });
+    const run = () =>
+      executePreparedReplyAgentRun({
+        activeSessionStore,
+        admitUserTurn,
+        agentCfgContextTokens,
+        applyReplyToMode,
+        beforeAgentReplyDispatchedForSteer,
+        beginBeforeAgentReply,
+        blockReplyChunking,
+        blockReplyPipeline,
+        blockStreamingEnabled,
+        cfg,
+        checkpointBeforeAgentReply,
+        confirmRestartRecoveryArmedAfterLeaseLoss,
+        commandBody,
+        defaultModel,
+        followupRun,
+        getActiveIsNewSession: () => activeIsNewSession,
+        getActiveSessionEntry: () => activeSessionEntry,
+        isHeartbeat,
+        isRestartRecoveryArmed,
+        opts: runOpts,
+        pendingToolTasks,
+        performSessionReset: resetSession,
+        queueKey,
+        replyMediaContext,
+        replyOperation,
+        replyRouteThreadId,
+        replyThreadingOverride,
+        replyToChannel,
+        replyToMode,
+        resetSessionAfterRoleOrderingConflict,
+        resolvedBlockStreamingBreak,
+        resolvedQueue,
+        resolvedVerboseLevel,
+        returnWithQueuedFollowupDrain,
+        runFollowupTurn,
+        runtimePolicySessionKey,
+        sendDirectCompactionNotice,
+        sessionCtx,
+        sessionKey,
+        setActiveSessionEntry: (entry) => {
+          activeSessionEntry = entry;
+        },
+        setRunFollowupTurn: (runner) => {
+          runFollowupTurn = runner;
+        },
+        shouldEmitToolOutput,
+        shouldEmitToolResult,
+        shouldInjectGroupIntro,
+        storePath,
+        toolProgressDetail,
+        traceAgentPhase,
+        transcriptCommandBody,
+        turnAdoptionLifecycle,
+        typing,
+        typingMode,
+        typingSignals,
+      });
+    return await runWithReplyOperationLifecycleAdmission(replyOperation, run);
   } catch (error) {
     return await handleReplyAgentRunError(error, {
       blockReplyPipeline,

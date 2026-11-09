@@ -16,7 +16,6 @@ import {
   type ChannelInboundTurnPlan,
 } from "openclaw/plugin-sdk/channel-inbound";
 import type { OpenClawConfig } from "openclaw/plugin-sdk/config-contracts";
-import { closeOpenClawStateDatabaseForTest } from "openclaw/plugin-sdk/plugin-state-test-runtime";
 import {
   getReplyPayloadNoVisibleReplyReason,
   type NoVisibleReplyReason,
@@ -29,6 +28,10 @@ import {
   setReplyPayloadMetadata,
 } from "openclaw/plugin-sdk/reply-payload-testing";
 import type { PluginRuntime } from "openclaw/plugin-sdk/runtime-store";
+import {
+  closeOpenClawAgentDatabasesForTest,
+  closeOpenClawStateDatabaseForTest,
+} from "openclaw/plugin-sdk/sqlite-runtime-testing";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { dispatchKnoxInbound } from "./inbound.js";
 import { setKnoxRuntime } from "./runtime.js";
@@ -207,6 +210,7 @@ afterEach(async () => {
   }
   vi.useRealTimers();
   resetAgentEventsForTest();
+  closeOpenClawAgentDatabasesForTest();
   closeOpenClawStateDatabaseForTest();
   vi.unstubAllEnvs();
   vi.unstubAllGlobals();
@@ -820,6 +824,33 @@ describe("Knox reply delivery through the core dispatch boundary", () => {
       expect(sent[0]?.text).not.toContain("CLI produced no output");
       expect(outcomes).toContainEqual(expect.objectContaining({ reason }));
       expect(outcomes).not.toContainEqual(expect.objectContaining({ reason: "delivered" }));
+    },
+  );
+
+  it.each(["thrown", "payload"] as const)(
+    "delivers a safe Korean retry notice for a %s sandbox skill refresh conflict",
+    async (kind) => {
+      const error = Object.assign(
+        new Error("Recreate first: openclaw sandbox recreate --agent test"),
+        {
+          code: "sandbox-skill-refresh-busy",
+        },
+      );
+      await runReplyBoundary(async () => {
+        if (kind === "thrown") {
+          throw new Error("Sandbox provisioning failed", { cause: error });
+        }
+        return buildKnownAgentRunFailureReplyPayload({
+          err: error,
+          sessionCtx: { ChatType: "group", Provider: "knox", Surface: "knox" },
+          resolvedVerboseLevel: "off",
+        });
+      });
+      expect(sent).toHaveLength(1);
+      expect(sent[0]).toMatchObject({ status: "error", final: true });
+      expect(sent[0]?.text).toContain("스킬 설정을 반영 중입니다. 잠시 후 다시 시도해 주세요.");
+      expect(sent[0]?.text).toContain("확인 코드: sandbox-skill-refresh-busy");
+      expect(sent[0]?.text).not.toContain("openclaw sandbox recreate");
     },
   );
 

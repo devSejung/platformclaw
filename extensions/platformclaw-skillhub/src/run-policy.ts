@@ -45,7 +45,11 @@ export function registerSkillHubRunPolicy(
     }
     return {
       excludedPaths: paths,
-      ...(directories !== undefined ? { excludedSourceDirectories: sourceDirectories } : {}),
+      // The authenticated control-plane response includes the managed room
+      // policy even when its current exclusion set is empty.
+      ...(directories !== undefined
+        ? { excludedSourceDirectories: sourceDirectories, reconcileSandboxSkillMounts: true }
+        : {}),
     };
   });
 }

@@ -1,6 +1,8 @@
+import { createHash } from "node:crypto";
 import path from "node:path";
 import JSZip, { type JSZipObject } from "jszip";
 import { isMap, parseDocument } from "yaml";
+import { computeSkillPromptVersion } from "../../../src/skills/loading/skill-version.js";
 import type { BrowserAuthService } from "./browser-auth-service.js";
 import type {
   ControlPlaneAuditWriter,
@@ -249,8 +251,10 @@ async function readZipEntryBounded(
   entry: JSZipObject,
   extracted: { bytes: number },
   limits: { expandedBytes: number; entryBytes: number },
+  fileDigests?: Map<string, SkillHubArchiveFileDigest>,
 ): Promise<Buffer | undefined> {
   const retain = entry.name === "SKILL.md";
+  const digest = fileDigests && createHash("sha256");
   return await new Promise<Buffer | undefined>((resolve, reject) => {
     const stream = entry.nodeStream("nodebuffer") as NodeJS.ReadableStream & {
       destroy(): void;
@@ -291,6 +295,7 @@ async function readZipEntryBounded(
       if (retain) {
         chunks.push(chunk);
       }
+      digest?.update(chunk);
     });
     stream.once("error", () => {
       fail(new SkillHubServiceError("Skill Hub returned an invalid ZIP archive", 400));
@@ -300,10 +305,19 @@ async function readZipEntryBounded(
         return;
       }
       settled = true;
+      if (digest) {
+        fileDigests?.set(entry.name, { bytes: entryBytes, sha256: digest.digest("hex") });
+      }
       resolve(retain ? Buffer.concat(chunks, entryBytes) : undefined);
     });
   });
 }
+
+type SkillHubArchiveFileDigest = { bytes: number; sha256: string };
+export type SkillHubArchiveInventory = {
+  entryPaths: string[];
+  files: Map<string, SkillHubArchiveFileDigest>;
+};
 
 export async function validateDownloadedArchive(
   archive: Buffer,
@@ -316,7 +330,8 @@ export async function validateDownloadedArchive(
     files: number;
     entries: number;
   },
-): Promise<void> {
+  inventory?: SkillHubArchiveInventory,
+): Promise<string> {
   if (archive.byteLength === 0 || archive.byteLength > limits.archiveBytes) {
     throw new SkillHubServiceError("Skill Hub archive exceeds the configured size limit", 400);
   }
@@ -339,14 +354,15 @@ export async function validateDownloadedArchive(
   const extracted = { bytes: 0 };
   let skillMarkdown: Buffer | undefined;
   for (const entry of entries) {
-    zipEntryPath(entry);
+    const entryPath = zipEntryPath(entry);
     if (isZipSymlink(entry)) {
       throw new SkillHubServiceError("Skill Hub archive contains a symbolic link", 400);
     }
+    inventory?.entryPaths.push(entryPath);
     if (entry.dir) {
       continue;
     }
-    const content = await readZipEntryBounded(entry, extracted, limits);
+    const content = await readZipEntryBounded(entry, extracted, limits, inventory?.files);
     if (content) {
       skillMarkdown = content;
     }
@@ -354,10 +370,12 @@ export async function validateDownloadedArchive(
   if (!skillMarkdown) {
     throw new SkillHubServiceError("Skill Hub archive is missing a valid SKILL.md", 400);
   }
-  const metadata = parseSkillMarkdown(skillMarkdown.toString("utf8"), expectedSlug);
+  const markdown = skillMarkdown.toString("utf8");
+  const metadata = parseSkillMarkdown(markdown, expectedSlug);
   if (metadata.version !== expectedVersion) {
     throw new SkillHubServiceError("SKILL.md version does not match the requested version", 400, {
       code: "skill-hub-version-mismatch",
     });
   }
+  return computeSkillPromptVersion(markdown);
 }

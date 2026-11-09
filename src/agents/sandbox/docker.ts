@@ -6,6 +6,7 @@
 import { createSubsystemLogger } from "../../logging/subsystem.js";
 import {
   DOCKER_SANDBOX_ENGINE,
+  ensureContainerImage,
   execContainer,
   execContainerRaw,
   type ExecContainerRawOptions,
@@ -29,6 +30,10 @@ import {
 
 export {
   DOCKER_SANDBOX_ENGINE,
+  ensureContainerImage,
+  ensureDockerImage,
+  formatDockerDaemonUnavailableError,
+  isDockerDaemonUnavailable,
   execContainer,
   execContainerRaw,
   PODMAN_SANDBOX_ENGINE,
@@ -57,9 +62,14 @@ export async function execDockerRaw(
 
 import { markOpenClawExecEnv } from "../../infra/openclaw-exec-env.js";
 import { KeyedAsyncQueue } from "../../plugin-sdk/keyed-async-queue.js";
+import { bindAgentWorkAdmissionContext } from "../agent-work-admission.js";
 import { computeSandboxConfigHash } from "./config-hash.js";
-import { DEFAULT_SANDBOX_IMAGE, SANDBOX_DOCKER_CREATE_ARGS_EPOCH } from "./constants.js";
+import { SANDBOX_DOCKER_CREATE_ARGS_EPOCH } from "./constants.js";
 import { handleHotSandboxConfigMismatch } from "./current-config.js";
+import {
+  prepareDockerSkillMountRefresh,
+  type DockerSkillMountRefresh,
+} from "./docker-skill-refresh.js";
 import { readRegistryEntry, removeRegistryEntry, updateRegistry } from "./registry.js";
 import { buildSandboxContainerName, slugifySessionKey } from "./shared.js";
 import type { SandboxConfig, SandboxDockerConfig, SandboxWorkspaceAccess } from "./types.js";
@@ -151,82 +161,6 @@ export async function readDockerPort(containerName: string, port: number) {
   }
   const mapped = Number.parseInt(match[1] ?? "", 10);
   return Number.isFinite(mapped) ? mapped : null;
-}
-
-const DOCKER_DAEMON_UNAVAILABLE_MARKERS = [
-  "cannot connect to the docker daemon",
-  "dial unix",
-  "docker daemon is not running",
-  "connection refused",
-];
-
-export function isDockerDaemonUnavailable(stderr: string): boolean {
-  return DOCKER_DAEMON_UNAVAILABLE_MARKERS.some((marker) => stderr.toLowerCase().includes(marker));
-}
-
-export function formatDockerDaemonUnavailableError(stderr: string): string {
-  const detail = stderr.trim();
-  return [
-    "Sandbox mode requires Docker, but the Docker daemon is not available.",
-    "Start Docker, or set `agents.defaults.sandbox.mode=off` to disable sandboxing.",
-    detail ? `Docker said: ${detail}` : undefined,
-  ]
-    .filter((line): line is string => Boolean(line))
-    .join(" ");
-}
-
-async function inspectContainerImage(
-  engine: SandboxContainerEngine,
-  image: string,
-): Promise<"exists" | "missing"> {
-  const result = await execContainer(engine, ["image", "inspect", image], {
-    allowFailure: true,
-  });
-  if (result.code === 0) {
-    return "exists";
-  }
-  const stderr = result.stderr.trim();
-  const imageMissing =
-    engine.id === "docker"
-      ? stderr.toLowerCase().includes("no such image")
-      : /no such image|image not known|image .* not found/iu.test(stderr);
-  if (imageMissing) {
-    return "missing";
-  }
-  if (engine.id === "docker" && isDockerDaemonUnavailable(stderr)) {
-    throw new Error(formatDockerDaemonUnavailableError(stderr));
-  }
-  if (engine.id === "docker") {
-    throw new Error(`Failed to inspect sandbox image: ${stderr}`);
-  }
-  throw new Error(`Failed to inspect sandbox image with ${engine.displayName}: ${stderr}`);
-}
-
-export async function ensureDockerImage(image: string) {
-  await ensureContainerImage(DOCKER_SANDBOX_ENGINE, image);
-}
-
-export async function ensureContainerImage(engine: SandboxContainerEngine, image: string) {
-  const imageState = await inspectContainerImage(engine, image);
-  if (imageState === "exists") {
-    return;
-  }
-  if (image === DEFAULT_SANDBOX_IMAGE) {
-    if (engine.id === "docker") {
-      throw new Error(
-        `Sandbox image not found: ${image}. Build it with scripts/sandbox-setup.sh before enabling Docker sandboxing. The default image includes python3 for sandbox write/edit helpers; OpenClaw will not substitute plain debian:bookworm-slim.`,
-      );
-    }
-    throw new Error(
-      `Sandbox image not found in ${engine.displayName}: ${image}. Build it with podman build -t ${image} -f scripts/docker/sandbox/Dockerfile . before enabling container sandboxing. The default image includes python3 for sandbox write/edit helpers; OpenClaw will not substitute plain debian:bookworm-slim.`,
-    );
-  }
-  if (engine.id === "docker") {
-    throw new Error(`Sandbox image not found: ${image}. Build or pull it first.`);
-  }
-  throw new Error(
-    `Sandbox image not found in ${engine.displayName}: ${image}. Build or pull it first.`,
-  );
 }
 
 export async function dockerContainerState(name: string) {
@@ -527,11 +461,19 @@ async function createSandboxContainer(params: {
   });
   args.push(cfg.image, "sleep", "infinity");
 
-  await execContainer(engine, args);
-  await execContainer(engine, ["start", name]);
-
-  if (cfg.setupCommand?.trim()) {
-    await execContainer(engine, ["exec", "-i", name, "/bin/sh", "-lc", cfg.setupCommand]);
+  const created = await execContainer(engine, args);
+  try {
+    await execContainer(engine, ["start", name]);
+    if (cfg.setupCommand?.trim()) {
+      await execContainer(engine, ["exec", "-i", name, "/bin/sh", "-lc", cfg.setupCommand]);
+    }
+  } catch (error) {
+    // A failed start/setup must not leave an apparently current replacement.
+    const id = created.stdout.trim();
+    if (/^[a-f0-9]{64}$/u.test(id)) {
+      await execContainer(engine, ["rm", "-f", id], { allowFailure: true });
+    }
+    throw error;
   }
 }
 
@@ -552,6 +494,7 @@ type EnsureSandboxContainerParams = {
   readOnlySkillMounts?: readonly ReadOnlyWorkspaceSkillMount[];
   cfg: SandboxConfig;
   requireCurrentConfig?: boolean;
+  reconcileSandboxSkillMounts?: true;
 };
 
 export async function ensureSandboxContainer(params: EnsureSandboxContainerParams) {
@@ -565,9 +508,10 @@ export async function ensureSandboxContainer(params: EnsureSandboxContainerParam
 
   // Independent agent runs can converge on one container resource. Serialize the
   // full lifecycle so followers re-read state after create, start, or replace.
-  return await sandboxContainerLifecycleQueue.enqueue(containerName, async () => {
-    return await ensureSandboxContainerLifecycle(params, containerName);
-  });
+  return await sandboxContainerLifecycleQueue.enqueue(
+    containerName,
+    bindAgentWorkAdmissionContext(() => ensureSandboxContainerLifecycle(params, containerName)),
+  );
 }
 
 async function ensureSandboxContainerLifecycle(
@@ -618,18 +562,18 @@ async function ensureSandboxContainerLifecycle(
     workspaceAccess: params.cfg.workspaceAccess,
     readOnlySkillMounts: params.readOnlySkillMounts,
   });
-  const genericConfigHash = computeSandboxConfigHash({
-    docker: params.cfg.docker,
-    dockerEnvPolicyEpoch: resolveDockerEnvPolicyEpoch(params.cfg.docker.env),
-    workspaceAccess: params.cfg.workspaceAccess,
-    workspaceDir: params.workspaceDir,
-    agentWorkspaceDir: params.agentWorkspaceDir,
-    mountFormatVersion: SANDBOX_MOUNT_FORMAT_VERSION,
-    createArgsEpoch: SANDBOX_DOCKER_CREATE_ARGS_EPOCH,
-    readOnlyWorkspaceSkillMounts: formatReadOnlyWorkspaceSkillMountHashState(
-      readOnlyWorkspaceSkillMounts,
-    ),
-  });
+  const hashConfig = (mounts: readonly ReadOnlyWorkspaceSkillMount[]) =>
+    computeSandboxConfigHash({
+      docker: params.cfg.docker,
+      dockerEnvPolicyEpoch: resolveDockerEnvPolicyEpoch(params.cfg.docker.env),
+      workspaceAccess: params.cfg.workspaceAccess,
+      workspaceDir: params.workspaceDir,
+      agentWorkspaceDir: params.agentWorkspaceDir,
+      mountFormatVersion: SANDBOX_MOUNT_FORMAT_VERSION,
+      createArgsEpoch: SANDBOX_DOCKER_CREATE_ARGS_EPOCH,
+      readOnlyWorkspaceSkillMounts: formatReadOnlyWorkspaceSkillMountHashState(mounts),
+    });
+  const genericConfigHash = hashConfig(readOnlyWorkspaceSkillMounts);
   const expectedHash =
     engine.id === "podman"
       ? resolvePodmanSandboxConfigHash({
@@ -644,9 +588,11 @@ async function ensureSandboxContainerLifecycle(
   let running = state.running;
   let currentHash: string | null = null;
   let hashMismatch = false;
+  let skillMountRefresh: DockerSkillMountRefresh | undefined;
   const registryEntry = existingRegistryEntry ?? undefined;
   if (hasContainer) {
-    currentHash = await readContainerConfigHash(engine, containerName);
+    const actualHash = await readContainerConfigHash(engine, containerName);
+    currentHash = actualHash;
     if (!currentHash) {
       currentHash = registryEntry?.configHash ?? null;
     }
@@ -659,7 +605,20 @@ async function ensureSandboxContainerLifecycle(
         registryEntry !== undefined &&
         running &&
         (typeof lastUsedAtMs !== "number" || now - lastUsedAtMs < HOT_CONTAINER_WINDOW_MS);
-      if (isHot) {
+      if (registryEntry && actualHash && params.reconcileSandboxSkillMounts) {
+        skillMountRefresh = await prepareDockerSkillMountRefresh({
+          engine,
+          containerName,
+          scopeKey: params.scopeKey,
+          currentHash: actualHash,
+          createParams: params,
+          hashConfig,
+        });
+      }
+      if (skillMountRefresh) {
+        hasContainer = false;
+        running = false;
+      } else if (isHot) {
         handleHotSandboxConfigMismatch({
           containerName,
           scope: params.cfg.scope,
@@ -675,35 +634,44 @@ async function ensureSandboxContainerLifecycle(
       }
     }
   }
-  if (!hasContainer) {
-    await createSandboxContainer({
-      engine,
-      name: containerName,
-      cfg: params.cfg.docker,
-      dockerTmpfsSource: params.cfg.dockerTmpfsSource,
-      workspaceDir: params.workspaceDir,
-      workspaceAccess: params.cfg.workspaceAccess,
-      agentWorkspaceDir: params.agentWorkspaceDir,
-      skillsWorkspaceDir: params.skillsWorkspaceDir,
-      scopeKey: params.scopeKey,
-      configHash: expectedHash,
-      readOnlyWorkspaceSkillMounts,
-      podmanRuntimeInfo,
+  try {
+    if (skillMountRefresh) {
+      // The lifecycle queue serializes provisioning while the owner fence also
+      // excludes new runs. Remove by inspected ID, never a reused name.
+      await execContainer(engine, ["rm", "-f", skillMountRefresh.containerId]);
+    }
+    if (!hasContainer) {
+      await createSandboxContainer({
+        engine,
+        name: containerName,
+        cfg: params.cfg.docker,
+        dockerTmpfsSource: params.cfg.dockerTmpfsSource,
+        workspaceDir: params.workspaceDir,
+        workspaceAccess: params.cfg.workspaceAccess,
+        agentWorkspaceDir: params.agentWorkspaceDir,
+        skillsWorkspaceDir: params.skillsWorkspaceDir,
+        scopeKey: params.scopeKey,
+        configHash: expectedHash,
+        readOnlyWorkspaceSkillMounts,
+        podmanRuntimeInfo,
+      });
+    } else if (!running) {
+      await execContainer(engine, ["start", containerName]);
+    }
+    await updateRegistry({
+      containerName,
+      backendId: engine.id,
+      ...(podmanRuntimeInfo ? { backendTarget: podmanRuntimeInfo.target } : {}),
+      runtimeLabel: containerName,
+      sessionKey: params.scopeKey,
+      createdAtMs: now,
+      lastUsedAtMs: now,
+      image: params.cfg.docker.image,
+      configLabelKind: "Image",
+      configHash: hashMismatch && running ? (currentHash ?? undefined) : expectedHash,
     });
-  } else if (!running) {
-    await execContainer(engine, ["start", containerName]);
+    return containerName;
+  } finally {
+    skillMountRefresh?.release();
   }
-  await updateRegistry({
-    containerName,
-    backendId: engine.id,
-    ...(podmanRuntimeInfo ? { backendTarget: podmanRuntimeInfo.target } : {}),
-    runtimeLabel: containerName,
-    sessionKey: params.scopeKey,
-    createdAtMs: now,
-    lastUsedAtMs: now,
-    image: params.cfg.docker.image,
-    configLabelKind: "Image",
-    configHash: hashMismatch && running ? (currentHash ?? undefined) : expectedHash,
-  });
-  return containerName;
 }

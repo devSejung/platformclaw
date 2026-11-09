@@ -1,6 +1,11 @@
 import { createHash } from "node:crypto";
 import type { OpenClawConfig } from "openclaw/plugin-sdk/config-contracts";
-import { findAgentRunTerminalOutcome, formatErrorMessage } from "openclaw/plugin-sdk/error-runtime";
+import {
+  collectErrorGraphCandidates,
+  extractErrorCode,
+  findAgentRunTerminalOutcome,
+  formatErrorMessage,
+} from "openclaw/plugin-sdk/error-runtime";
 import { redactSensitiveText } from "openclaw/plugin-sdk/logging-core";
 import {
   getReplyPayloadAgentRunTerminalOutcome,
@@ -43,10 +48,24 @@ function describeSourceFailure(
   return reason === "runtime-error" ? (knownReason ?? reason) : reason;
 }
 
-function runtimeFailureReason(error: unknown): "timeout" | "cancelled" | "runtime-error" {
+function runtimeFailureReason(error: unknown): KnoxReplyFailureReason {
   const terminal = findAgentRunTerminalOutcome(error);
-  if (terminal) {
-    return terminalFailureReason(terminal);
+  const terminalReason = terminal ? terminalFailureReason(terminal) : undefined;
+  if (terminalReason && terminalReason !== "runtime-error") {
+    return terminalReason;
+  }
+  const skillRefreshBusy = "sandbox-skill-refresh-busy";
+  if (
+    collectErrorGraphCandidates(error, (candidate) => [
+      candidate.cause,
+      candidate.error,
+      ...(Array.isArray(candidate.errors) ? candidate.errors : []),
+    ]).some((candidate) => extractErrorCode(candidate) === skillRefreshBusy)
+  ) {
+    return skillRefreshBusy;
+  }
+  if (terminalReason) {
+    return terminalReason;
   }
   let candidate = error;
   const seen = new Set<object>();

@@ -1,6 +1,9 @@
 // Serializes lifecycle mutations and work admission for logical session identities.
 import { AsyncLocalStorage } from "node:async_hooks";
-import { beginAgentWorkAdmission } from "../agents/agent-work-admission.js";
+import {
+  beginAgentWorkAdmission,
+  runWithAgentWorkAdmissions,
+} from "../agents/agent-work-admission.js";
 import { runExclusiveSessionStoreWrite } from "../config/sessions/store-writer.js";
 import {
   GatewayDrainingError,
@@ -458,7 +461,7 @@ export async function beginSessionWorkAdmission(params: {
           }),
         ),
       ];
-  const ownerReleases: Array<() => void> = [];
+  const ownerReleases: Array<ReturnType<typeof beginAgentWorkAdmission>> = [];
   const releaseOwnerWork = () => ownerReleases.splice(0).forEach((release) => release());
   try {
     // Hold the owner through preflight, queueing, execution and publication;
@@ -521,7 +524,9 @@ export async function beginSessionWorkAdmission(params: {
           run: async <T>(run: () => Promise<T>) => {
             const current = new Set(CURRENT_SESSION_WORK_ADMISSIONS.getStore());
             current.add(admission);
-            return await CURRENT_SESSION_WORK_ADMISSIONS.run(current, run);
+            return await runWithAgentWorkAdmissions(ownerReleases, () =>
+              CURRENT_SESSION_WORK_ADMISSIONS.run(current, run),
+            );
           },
         };
         const signal = params.signal;

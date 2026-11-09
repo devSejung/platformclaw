@@ -10,6 +10,7 @@ import {
 } from "../../../infra/agent-run-registry.js";
 import { enqueueCommandInLane, getCommandLaneSnapshot } from "../../../process/command-queue.js";
 import type { CommandQueueEnqueueOptions } from "../../../process/command-queue.types.js";
+import { bindAgentWorkAdmissionContext } from "../../agent-work-admission.js";
 import { withSessionPlacementTurnAdmission } from "../../session-placement-admission.js";
 import type { EmbeddedAgentRunResult } from "../types.js";
 import {
@@ -124,7 +125,7 @@ export function createEmbeddedRunLaneController<TParams extends LaneParams>(opti
       ...opts,
       priority: sessionQueuePriority,
     };
-    const taskWithCurrentLifecycle = async () => {
+    const taskWithCurrentLifecycle = bindAgentWorkAdmissionContext(async () => {
       let params = options.getParams();
       params.onLaneWait?.({ waitMs: 0, queuedAhead: 0, waiting: false });
       params.replyOperation?.markGlobalLaneWaitEnded();
@@ -178,7 +179,7 @@ export function createEmbeddedRunLaneController<TParams extends LaneParams>(opti
           },
         ),
       );
-    };
+    });
     const params = options.getParams();
     if (params.enqueue) {
       return params.enqueue(taskWithCurrentLifecycle, withLaneTimeout(withRunLaneWait(globalOpts)));
@@ -192,10 +193,10 @@ export function createEmbeddedRunLaneController<TParams extends LaneParams>(opti
   };
   const enqueueSession = <T>(task: () => Promise<T>, opts?: CommandQueueEnqueueOptions) => {
     const sessionOpts: CommandQueueEnqueueOptions = { ...opts, priority: sessionQueuePriority };
-    const taskWithLaneAdmission = () => {
+    const taskWithLaneAdmission = bindAgentWorkAdmissionContext(() => {
       options.getParams().onLaneWait?.({ waitMs: 0, queuedAhead: 0, waiting: false });
       return task();
-    };
+    });
     const params = options.getParams();
     // Session admission, deferred maintenance, and global admission share one queue owner.
     releaseQueuedRunContext = retainQueuedAgentRunContext(

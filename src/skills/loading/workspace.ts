@@ -1904,6 +1904,7 @@ export async function syncSkillsToWorkspace(params: {
   excludedSkillFiles: string[];
   excludedSourceDirectories: string[];
   policyApplied: boolean;
+  reconcileSandboxSkillMounts?: true;
 }> {
   const sourceDir = resolveUserPath(params.sourceWorkspaceDir);
   const targetDir = resolveUserPath(params.targetWorkspaceDir);
@@ -1927,7 +1928,7 @@ export async function syncSkillsToWorkspace(params: {
   });
   // Check before refreshing the cache so revoked candidates never leave behind
   // a newly materialized copy or enter this run's immutable backend catalog.
-  const { excludedPaths, excludedSourceDirectories, policyApplied } =
+  const { excludedPaths, excludedSourceDirectories, policyApplied, reconcileSandboxSkillMounts } =
     await resolveSkillContextExclusions(
       candidates.map(({ skill }) => ({
         name: skill.name,
@@ -2003,6 +2004,7 @@ export async function syncSkillsToWorkspace(params: {
         excludedSkillFiles,
         excludedSourceDirectories: [...excludedSourceDirectories],
         policyApplied,
+        ...(reconcileSandboxSkillMounts ? { reconcileSandboxSkillMounts } : {}),
       };
     });
   } catch (error) {

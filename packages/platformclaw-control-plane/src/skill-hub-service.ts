@@ -417,6 +417,11 @@ export class SkillHubService extends SkillHubCommandService {
         "Skill Hub cleanup is pending. Existing trash stays unavailable; an administrator can retry cleanup.";
     } finally {
       this.governanceProcessing = false;
+      // Archive verification can wait on the registry. Keep it off startup's
+      // awaited governance pass and let the existing timer retry outages.
+      if (!this.governanceClosed) {
+        void this.recoverLegacyRoomInstallations();
+      }
       this.triggerGovernanceProcessing(30_000);
     }
     return { processed };

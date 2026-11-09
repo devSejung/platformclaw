@@ -171,6 +171,11 @@ Deleting an installed copy does not delete its Hub original. Deletion checks the
 current physical directory and revision; it cannot remove another workspace,
 follow an arbitrary path, or select a sibling by a frontmatter alias.
 
+In a room, `/skillhub installed` identifies copies disabled by an incomplete
+installation record or room policy. If a skill mount changes while the room is
+busy, wait for the current task to finish and retry the message. The next idle
+dispatch can recreate the room sandbox with the current skill mounts.
+
 ## Natural language in Knox
 
 Ask the Agent to find a skill for a task. It searches the available catalog,

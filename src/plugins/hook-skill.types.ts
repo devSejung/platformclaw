@@ -13,6 +13,8 @@ export type PluginHookBeforeSkillContextResult = {
   excludedPaths: string[];
   /** Managed source directories to hide even when their SKILL.md is not discoverable. */
   excludedSourceDirectories?: string[];
+  /** Managed policy may refresh an idle sandbox when only skill mount configuration changed. */
+  reconcileSandboxSkillMounts?: true;
 };
 
 export type PluginHookSkillProposalKind = "create" | "update";
